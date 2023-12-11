@@ -21,10 +21,12 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 
-#include <IndustryStandard/Bcm2836.h>
+#include <IndustryStandard/Bcm2836Mbox.h>
 #include <IndustryStandard/RpiMbox.h>
 
 #include <Protocol/RpiFirmware.h>
+
+#define MBOX_BASE_ADDRESS     PcdGet64 (PcdFwMailboxBaseAddress)
 
 //
 // The number of statically allocated buffer pages
@@ -276,12 +278,12 @@ DrainMailbox (
   //
   Tries = 0;
   do {
-    Val = MmioRead32 (BCM2836_MBOX_BASE_ADDRESS + BCM2836_MBOX_STATUS_OFFSET);
+    Val = MmioRead32 (MBOX_BASE_ADDRESS + BCM2836_MBOX_STATUS_OFFSET);
     if (Val & (1U << BCM2836_MBOX_STATUS_EMPTY)) {
       return TRUE;
     }
     ArmDataSynchronizationBarrier ();
-    MmioRead32 (BCM2836_MBOX_BASE_ADDRESS + BCM2836_MBOX_READ_OFFSET);
+    MmioRead32 (MBOX_BASE_ADDRESS + BCM2836_MBOX_READ_OFFSET);
   } while (++Tries < RPI_MBOX_MAX_TRIES);
 
   return FALSE;
@@ -301,7 +303,7 @@ MailboxWaitForStatusCleared (
   //
   Tries = 0;
   do {
-    Val = MmioRead32 (BCM2836_MBOX_BASE_ADDRESS + BCM2836_MBOX_STATUS_OFFSET);
+    Val = MmioRead32 (MBOX_BASE_ADDRESS + BCM2836_MBOX_STATUS_OFFSET);
     if ((Val & StatusMask) == 0) {
       return TRUE;
     }
@@ -346,7 +348,7 @@ MailboxTransaction (
   //
   // Start the mailbox transaction
   //
-  MmioWrite32 (BCM2836_MBOX_BASE_ADDRESS + BCM2836_MBOX_WRITE_OFFSET,
+  MmioWrite32 (MBOX_BASE_ADDRESS + BCM2836_MBOX_WRITE_OFFSET,
     (UINT32)((UINTN)mDmaBufferBusAddress | Channel));
 
   ArmDataSynchronizationBarrier ();
@@ -364,7 +366,7 @@ MailboxTransaction (
   // Read back the result
   //
   ArmDataSynchronizationBarrier ();
-  *Result = MmioRead32 (BCM2836_MBOX_BASE_ADDRESS + BCM2836_MBOX_READ_OFFSET);
+  *Result = MmioRead32 (MBOX_BASE_ADDRESS + BCM2836_MBOX_READ_OFFSET);
   ArmDataSynchronizationBarrier ();
 
   return EFI_SUCCESS;
@@ -1042,7 +1044,7 @@ RpiFirmwareAllocFb (
   }
 
   *Pitch = Cmd->Pitch.Pitch;
-  *FbBase = Cmd->AllocFb.AlignmentBase - BCM2836_DMA_DEVICE_OFFSET;
+  *FbBase = Cmd->AllocFb.AlignmentBase - PcdGet64 (PcdDmaDeviceOffset);
   *FbSize = Cmd->AllocFb.Size;
   ReleaseSpinLock (&mMailboxLock);
 
