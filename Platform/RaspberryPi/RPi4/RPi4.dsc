@@ -774,6 +774,11 @@
   MdeModulePkg/Bus/Pci/NvmExpressDxe/NvmExpressDxe.inf
 
   #
+  # EFI Memory Attribute Protocol Manager
+  #
+  Platform/RaspberryPi/Drivers/MemoryAttributeManagerDxe/MemoryAttributeManagerDxe.inf
+
+  #
   # UEFI application (Shell Embedded Boot Loader)
   #
   ShellPkg/Application/Shell/Shell.inf {
