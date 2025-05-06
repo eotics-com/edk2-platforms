@@ -58,7 +58,10 @@ BoardRevisionGetModelFamily (
       case 0x14:          // Raspberry Pi Computer Module 4
         return 4;
       case 0x17:          // Raspberry Pi 5 Model B
-        return 5;
+      case 0x18:          // Compute Module 5
+      case 0x19:          // Raspberry Pi 500
+      case 0x1a:          // Compute Module 5 Lite
+      return 5;
     }
   }
   return 0;
@@ -106,6 +109,12 @@ BoardRevisionGetModelName (
         return "Raspberry Pi Compute Module 4";
       case 0x17:
         return "Raspberry Pi 5 Model B";
+      case 0x18:
+        return "Raspberry Pi Compute Module 5";
+      case 0x19:
+        return "Raspberry Pi 500"
+      case 0x1a:
+        return "Raspberry Pi Compute Module 5 Lite"
     }
   }
   return "Unknown Raspberry Pi Model";
