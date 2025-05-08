@@ -211,6 +211,7 @@ ClearScreen (
   Fill.Red = 0x00;
   Fill.Green = 0x00;
   Fill.Blue = 0x00;
+  Fill.Reserved = 0xFF;
   This->Blt (This, &Fill, EfiBltVideoFill,
           0, 0, 0, 0, This->Mode->Info->HorizontalResolution,
           This->Mode->Info->VerticalResolution,
@@ -319,6 +320,7 @@ DisplayBlt (
 
     for (i = 0; i < Height; i++) {
       VidBuf = POS_TO_FB (DestinationX, DestinationY + i);
+      ((EFI_GRAPHICS_OUTPUT_BLT_PIXEL*)BltBuf)->Reserved = 0xFF;
 
       SetMem32 (VidBuf, Width * PI3_BYTES_PER_PIXEL, *(UINT32*)BltBuf);
     }
@@ -345,6 +347,14 @@ DisplayBlt (
     }
 
     for (i = 0; i < Height; i++) {
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL *PixelRow = (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)
+      ((UINTN)BltBuffer + (SourceY + i) * Delta + SourceX * PI3_BYTES_PER_PIXEL);
+
+    for (UINTN x = 0; x < Width; x++) {
+      if (PixelRow[x].Reserved != 0xFF) {
+        PixelRow[x].Reserved = 0xFF;
+      }
+    } 
       VidBuf = POS_TO_FB (DestinationX, DestinationY + i);
       BltBuf = (UINT8*)((UINTN)BltBuffer + (SourceY + i) * Delta +
         SourceX * PI3_BYTES_PER_PIXEL);
