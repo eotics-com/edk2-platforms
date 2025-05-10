@@ -112,9 +112,9 @@ BoardRevisionGetModelName (
       case 0x18:
         return "Raspberry Pi Compute Module 5";
       case 0x19:
-        return "Raspberry Pi 500"
-      case 0x1a:
-        return "Raspberry Pi Compute Module 5 Lite"
+        return "Raspberry Pi 500";
+      case 0x1A:
+        return "Raspberry Pi Compute Module 5 Lite";
     }
   }
   return "Unknown Raspberry Pi Model";
