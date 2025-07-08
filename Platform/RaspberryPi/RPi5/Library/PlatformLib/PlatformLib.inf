@@ -56,9 +56,7 @@
   gArmTokenSpaceGuid.PcdSystemMemoryBase
   gArmTokenSpaceGuid.PcdSystemMemorySize
   gRaspberryPiTokenSpaceGuid.PcdNvStorageEventLogSize
-  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableSize
-  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingSize
-  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwSpareSize
+  gRaspberryPiTokenSpaceGuid.PcdNvStorageVariableBase
   gRaspberryPiTokenSpaceGuid.PcdFwMailboxBaseAddress
 
 [Ppis]
