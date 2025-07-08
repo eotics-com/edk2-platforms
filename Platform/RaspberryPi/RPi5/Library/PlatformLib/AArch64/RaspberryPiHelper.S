@@ -10,7 +10,7 @@
  *
  **/
 
-#include <AsmMacroIoLibV8.h>
+#include <AsmMacroLib.h>
 #include <Library/ArmLib.h>
 #include <IndustryStandard/Bcm2836Mbox.h>
 #include <IndustryStandard/RpiMbox.h>
