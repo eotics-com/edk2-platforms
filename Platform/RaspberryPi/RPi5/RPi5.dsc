@@ -126,7 +126,7 @@
   CpuExceptionHandlerLib|ArmPkg/Library/ArmExceptionLib/ArmExceptionLib.inf
   DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
   TimeBaseLib|EmbeddedPkg/Library/TimeBaseLib/TimeBaseLib.inf
-  ArmSmcLib|ArmPkg/Library/ArmSmcLib/ArmSmcLib.inf
+  ArmSmcLib|MdePkg/Library/ArmSmcLib/ArmSmcLib.inf
   ArmGenericTimerCounterLib|ArmPkg/Library/ArmGenericTimerPhyCounterLib/ArmGenericTimerPhyCounterLib.inf
 
   # Dual serial port library
@@ -155,7 +155,7 @@
   DebugAgentTimerLib|EmbeddedPkg/Library/DebugAgentTimerLibNull/DebugAgentTimerLibNull.inf
 
   # Flattened Device Tree (FDT) access library
-  FdtLib|EmbeddedPkg/Library/FdtLib/FdtLib.inf
+  FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf
 
   # USB Libraries
   UefiUsbLib|MdePkg/Library/UefiUsbLib/UefiUsbLib.inf
@@ -385,7 +385,6 @@
 
 [PcdsFixedAtBuild.common]
   gArmPlatformTokenSpaceGuid.PcdCoreCount|4
-  gArmTokenSpaceGuid.PcdVFPEnabled|1
 
   gArmPlatformTokenSpaceGuid.PcdCPUCorePrimaryStackSize|0x4000
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x2000
@@ -548,6 +547,7 @@
 !else
   MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
 !endif
+  SecurityPkg/Hash2DxeCrypto/Hash2DxeCrypto.inf
   MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
   MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf
   MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
@@ -570,7 +570,10 @@
   ArmPkg/Drivers/ArmGicDxe/ArmGicV2Dxe.inf
   Platform/RaspberryPi/Drivers/RpiFirmwareDxe/RpiFirmwareDxe.inf
   Platform/RaspberryPi/RPi5/Drivers/RpiPlatformDxe/RpiPlatformDxe.inf
-  Platform/RaspberryPi/Drivers/FdtDxe/FdtDxe.inf
+  Platform/RaspberryPi/Drivers/FdtDxe/FdtDxe.inf {
+    <LibraryClasses>
+      FdtLib|EmbeddedPkg/Library/FdtLib/FdtLib.inf  # Map to deprecated library for this module only
+  }  
   ArmPkg/Drivers/TimerDxe/TimerDxe.inf
   MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
   MdeModulePkg/Universal/EbcDxe/EbcDxe.inf
