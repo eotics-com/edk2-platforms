@@ -286,6 +286,10 @@
   gEfiMdePkgTokenSpaceGuid.PcdPerformanceLibraryPropertyMask|1
   gEfiMdePkgTokenSpaceGuid.PcdPostCodePropertyMask|0
   gEfiMdePkgTokenSpaceGuid.PcdUefiLibMaxPrintBufferSize|320
+  #
+  # Follows right after the FD image. (bump the size again)
+  #
+  gRaspberryPiTokenSpaceGuid.PcdFdtBaseAddress|0x003e0000
 
   gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|$(DEBUG_PROPERTY_MASK)
 
@@ -394,11 +398,11 @@
   gArmPlatformTokenSpaceGuid.PcdSystemMemoryUefiRegionSize|0x04000000
   #
   # 0x00000000 - 0x001F0000  FD (PcdFdBaseAddress, PcdFdSize)
-  # 0x001F0000 - 0x00210000 DTB (PcdFdtBaseAddress, PcdFdtSize)
-  # 0x00210000 - ...        RAM (PcdSystemMemoryBase, PcdSystemMemorySize)
+  # 0x003E0000 - 0x00400000 DTB (PcdFdtBaseAddress, PcdFdtSize)
+  # 0x00400000 - ...        RAM (PcdSystemMemoryBase, PcdSystemMemorySize)
   #
-  gArmTokenSpaceGuid.PcdSystemMemoryBase|0x00210000
-  gArmTokenSpaceGuid.PcdSystemMemorySize|0x3fdf0000
+  gArmTokenSpaceGuid.PcdSystemMemoryBase|0x00400000
+  gArmTokenSpaceGuid.PcdSystemMemorySize|0x3fc00000
 
   gRaspberryPiTokenSpaceGuid.PcdFdtSize|0x20000
 
