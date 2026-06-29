@@ -102,6 +102,180 @@ Rp1BusEnableInterrupts (
     Rp1Data->PeripheralBase + RP1_PCIE_REG_SET + RP1_PCIE_MSIX_CFG (RP1_INT_USBHOST1_0),
     RP1_PCIE_MSIX_CFG_ENABLE
     );
+  MmioWrite32 (
+    Rp1Data->PeripheralBase + RP1_PCIE_REG_SET + RP1_PCIE_MSIX_CFG (RP1_INT_ETH),
+    RP1_PCIE_MSIX_CFG_ENABLE
+    );
+}
+
+//
+// RP1 Ethernet clock and PHY setup.
+//
+#define RP1_CLK_ETH_CTRL          (RP1_CLOCKS_MAIN_BASE + 0x064)
+#define RP1_CLK_ETH_TSU_CTRL      (RP1_CLOCKS_MAIN_BASE + 0x134)
+#define RP1_CLK_CTRL_ENABLE       BIT11
+
+// The active-low PHY reset is RP1 GPIO32 (bank 1, pin 4).
+#define RP1_ETH_PHY_RESET_PIN     4
+#define RP1_ETH_PHY_RESET_BIT     (1U << RP1_ETH_PHY_RESET_PIN)
+
+#define RP1_RIO_OUT               0x0000
+#define RP1_RIO_OE                0x0004
+#define RP1_RIO_SET               0x2000
+#define RP1_RIO_CLR               0x3000
+
+#define RP1_GPIO_CTRL_REG         (0x04 + (RP1_ETH_PHY_RESET_PIN * 8))
+#define RP1_PADS_CTRL_REG         (0x04 + (RP1_ETH_PHY_RESET_PIN * 4))
+
+#define RP1_GPIO_FUNCSEL_MASK     0x0000001f
+#define RP1_GPIO_OUTOVER_MASK     0x00003000
+#define RP1_GPIO_OEOVER_MASK      0x0000c000
+#define RP1_GPIO_INOVER_MASK      0x00030000
+#define RP1_GPIO_FSEL_GPIO        0x05
+
+#define RP1_PAD_PULL_MASK         0x0000000c
+#define RP1_PAD_IN_ENABLE         0x00000040
+#define RP1_PAD_OUT_DISABLE       0x00000080
+
+STATIC
+VOID
+EFIAPI
+Rp1BusEthernetBringUp (
+  IN RP1_BUS_DATA  *Rp1Data
+  )
+{
+  EFI_PHYSICAL_ADDRESS  Base;
+  UINT32                Val;
+  UINT32                Ctrl;
+  UINT32                Pad;
+
+  Base = Rp1Data->PeripheralBase;
+
+  Val = MmioRead32 (Base + RP1_CLK_ETH_CTRL);
+  if ((Val & RP1_CLK_CTRL_ENABLE) == 0) {
+    MmioWrite32 (Base + RP1_CLK_ETH_CTRL, Val | RP1_CLK_CTRL_ENABLE);
+  }
+  Val = MmioRead32 (Base + RP1_CLK_ETH_TSU_CTRL);
+  if ((Val & RP1_CLK_CTRL_ENABLE) == 0) {
+    MmioWrite32 (Base + RP1_CLK_ETH_TSU_CTRL, Val | RP1_CLK_CTRL_ENABLE);
+  }
+  gBS->Stall (100);
+
+  // Assert reset before enabling the output driver.
+  MmioWrite32 (
+    Base + RP1_SYS_RIO1_BASE + RP1_RIO_OUT + RP1_RIO_CLR,
+    RP1_ETH_PHY_RESET_BIT
+    );
+  MmioWrite32 (
+    Base + RP1_SYS_RIO1_BASE + RP1_RIO_OE + RP1_RIO_SET,
+    RP1_ETH_PHY_RESET_BIT
+    );
+
+  Pad  = MmioRead32 (Base + RP1_PADS_BANK1_BASE + RP1_PADS_CTRL_REG);
+  Pad &= ~(RP1_PAD_PULL_MASK | RP1_PAD_OUT_DISABLE);
+  Pad |= RP1_PAD_IN_ENABLE;
+  MmioWrite32 (Base + RP1_PADS_BANK1_BASE + RP1_PADS_CTRL_REG, Pad);
+
+  Ctrl  = MmioRead32 (Base + RP1_IO_BANK1_BASE + RP1_GPIO_CTRL_REG);
+  Ctrl &= ~(RP1_GPIO_FUNCSEL_MASK | RP1_GPIO_OUTOVER_MASK |
+            RP1_GPIO_OEOVER_MASK | RP1_GPIO_INOVER_MASK);
+  Ctrl |= RP1_GPIO_FSEL_GPIO;
+  MmioWrite32 (Base + RP1_IO_BANK1_BASE + RP1_GPIO_CTRL_REG, Ctrl);
+
+  gBS->Stall (5000);
+  MmioWrite32 (
+    Base + RP1_SYS_RIO1_BASE + RP1_RIO_OUT + RP1_RIO_SET,
+    RP1_ETH_PHY_RESET_BIT
+    );
+  gBS->Stall (20000);
+}
+
+//
+// Enable the RP1 USB host clocks and configure both DWC3 cores.
+//
+#define RP1_CLK_USBH0_MICROFRAME_CTRL  (RP1_CLOCKS_MAIN_BASE + 0x0F4)
+#define RP1_CLK_USBH1_MICROFRAME_CTRL  (RP1_CLOCKS_MAIN_BASE + 0x104)
+#define RP1_CLK_USBH0_SUSPEND_CTRL     (RP1_CLOCKS_MAIN_BASE + 0x114)
+#define RP1_CLK_USBH1_SUSPEND_CTRL     (RP1_CLOCKS_MAIN_BASE + 0x124)
+
+#define DWC3_GSNPSID                   0xC120
+#define DWC3_GCTL                      0xC110
+#define DWC3_GCTL_PRTCAPDIR_MASK       (BIT13 | BIT12)
+#define DWC3_GCTL_PRTCAP_HOST          BIT12
+#define DWC3_GUSB2PHYCFG0              0xC200
+#define DWC3_GUSB2PHYCFG_SUSPHY        BIT6
+#define DWC3_GUSB2PHYCFG_ENBLSLPM      BIT8
+#define DWC3_GUSB3PIPECTL0             0xC2C0
+#define DWC3_GUSB3PIPECTL_SUSPHY       BIT17
+#define DWC3_GUSB3PIPECTL_UX_EXIT_PX   BIT27
+#define DWC3_GFLADJ                    0xC630
+#define DWC3_GFLADJ_30MHZ_SDBND_SEL    BIT7
+#define DWC3_GFLADJ_30MHZ_MASK         0x3F
+#define DWC3_GFLADJ_30MHZ_DEFAULT      0x20
+
+STATIC
+VOID
+EFIAPI
+Rp1BusUsbHostBringUp (
+  IN RP1_BUS_DATA  *Rp1Data
+  )
+{
+  STATIC CONST EFI_PHYSICAL_ADDRESS Dwc3Offsets[] = {
+    RP1_USBHOST0_BASE,
+    RP1_USBHOST1_BASE
+  };
+  EFI_PHYSICAL_ADDRESS  Base;
+  EFI_PHYSICAL_ADDRESS  DwcBase;
+  UINT32                Reg;
+  UINTN                 Index;
+
+  Base = Rp1Data->PeripheralBase;
+
+  Reg = MmioRead32 (Base + RP1_CLK_USBH0_MICROFRAME_CTRL);
+  if ((Reg & RP1_CLK_CTRL_ENABLE) == 0) {
+    MmioWrite32 (Base + RP1_CLK_USBH0_MICROFRAME_CTRL, Reg | RP1_CLK_CTRL_ENABLE);
+  }
+  Reg = MmioRead32 (Base + RP1_CLK_USBH0_SUSPEND_CTRL);
+  if ((Reg & RP1_CLK_CTRL_ENABLE) == 0) {
+    MmioWrite32 (Base + RP1_CLK_USBH0_SUSPEND_CTRL, Reg | RP1_CLK_CTRL_ENABLE);
+  }
+  Reg = MmioRead32 (Base + RP1_CLK_USBH1_MICROFRAME_CTRL);
+  if ((Reg & RP1_CLK_CTRL_ENABLE) == 0) {
+    MmioWrite32 (Base + RP1_CLK_USBH1_MICROFRAME_CTRL, Reg | RP1_CLK_CTRL_ENABLE);
+  }
+  Reg = MmioRead32 (Base + RP1_CLK_USBH1_SUSPEND_CTRL);
+  if ((Reg & RP1_CLK_CTRL_ENABLE) == 0) {
+    MmioWrite32 (Base + RP1_CLK_USBH1_SUSPEND_CTRL, Reg | RP1_CLK_CTRL_ENABLE);
+  }
+  gBS->Stall (100);
+
+  for (Index = 0; Index < ARRAY_SIZE (Dwc3Offsets); Index++) {
+    DwcBase = Base + Dwc3Offsets[Index];
+    Reg     = MmioRead32 (DwcBase + DWC3_GSNPSID);
+    if ((Reg == 0) || (Reg == MAX_UINT32)) {
+      continue;
+    }
+
+    Reg = MmioRead32 (DwcBase + DWC3_GCTL);
+    if ((Reg & DWC3_GCTL_PRTCAPDIR_MASK) != DWC3_GCTL_PRTCAP_HOST) {
+      Reg &= ~DWC3_GCTL_PRTCAPDIR_MASK;
+      Reg |= DWC3_GCTL_PRTCAP_HOST;
+      MmioWrite32 (DwcBase + DWC3_GCTL, Reg);
+    }
+
+    Reg  = MmioRead32 (DwcBase + DWC3_GUSB2PHYCFG0);
+    Reg &= ~(DWC3_GUSB2PHYCFG_SUSPHY | DWC3_GUSB2PHYCFG_ENBLSLPM);
+    MmioWrite32 (DwcBase + DWC3_GUSB2PHYCFG0, Reg);
+
+    Reg  = MmioRead32 (DwcBase + DWC3_GUSB3PIPECTL0);
+    Reg &= ~(DWC3_GUSB3PIPECTL_SUSPHY | DWC3_GUSB3PIPECTL_UX_EXIT_PX);
+    MmioWrite32 (DwcBase + DWC3_GUSB3PIPECTL0, Reg);
+
+    Reg  = MmioRead32 (DwcBase + DWC3_GFLADJ);
+    Reg &= ~(UINT32)DWC3_GFLADJ_30MHZ_MASK;
+    Reg |= DWC3_GFLADJ_30MHZ_SDBND_SEL | DWC3_GFLADJ_30MHZ_DEFAULT;
+    MmioWrite32 (DwcBase + DWC3_GFLADJ, Reg);
+  }
 }
 
 STATIC
@@ -268,6 +442,8 @@ Rp1BusDriverBindingStart (
     ));
 
   Rp1BusRegisterDevices (Rp1Data);
+  Rp1BusEthernetBringUp (Rp1Data);
+  Rp1BusUsbHostBringUp (Rp1Data);
   Rp1BusEnableInterrupts (Rp1Data);
 
   return EFI_SUCCESS;

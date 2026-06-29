@@ -109,6 +109,8 @@
 
 #define RP1_USBHOST_SIZE                            0x00100000
 
+#define RP1_ETH_SIZE                                0x00004000
+
 //
 // Local MSI-X vectors
 //
