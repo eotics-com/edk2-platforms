@@ -58,3 +58,26 @@ Device (XHC1) {
     Return (RBUF)
   }
 }
+
+// Cadence GEM Ethernet
+Device (ETH0) {
+  Name (_HID, "PRP0001")
+  Name (_UID, 0x0)
+
+  Method (_CRS, 0, Serialized) {
+    Name (RBUF, ResourceTemplate () {
+      RP1_QWORDMEMORY_BUF (00)
+      RP1_INTERRUPT_BUF (01)
+    })
+    RP1_QWORDMEMORY_SET (00, RP1_ETH_BASE, RP1_ETH_SIZE)
+    RP1_INTERRUPT_SET (01)
+    Return (RBUF)
+  }
+
+  Name (_DSD, Package () {
+    ToUUID ("daffd814-6eba-4d8c-8a91-bc9bbf4aa301"),
+    Package () {
+      Package () { "compatible", "cdns,macb" }
+    }
+  })
+}

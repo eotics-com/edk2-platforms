@@ -367,6 +367,20 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
     } // Device (SDC0)
 
     //
+    // CYW43455 WL_ON, GIO pin 28.
+    //
+    OperationRegion (GIOW, SystemMemory, BCM2712_BRCMSTB_GIO_BASE, BCM2712_BRCMSTB_GIO_LENGTH)
+    Field (GIOW, DWordAcc, NoLock, Preserve) {
+      Offset (0x4), GDAT, 32,
+      Offset (0x8), GDIR, 32
+    }
+    PowerResource (WLPW, 0, 0) {
+      Method (_STA) { Return ((GDAT >> 28) & 1) }
+      Method (_ON)  { GDAT |= (1 << 28); GDIR &= ~(1 << 28); Sleep (150) }
+      Method (_OFF) { GDAT &= ~(1 << 28) }
+    }
+
+    //
     // This controller drives the SDIO Wi-Fi.
     // It can only run at DDR50 with fixed signaling voltage, so there's no
     // need to apply most of the workarounds above.
@@ -376,6 +390,7 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
       Name (_CID, Package () { "80860F16", "VEN_8086&DEV_0F14" })
       Name (_UID, 0x1)
       Name (_CCA, 0x0)
+      Name (_PR0, Package () { WLPW })
 
       Method (_CRS, 0x0, Serialized) {
         Name (RBUF, ResourceTemplate () {

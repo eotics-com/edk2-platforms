@@ -15,6 +15,7 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/DxeServicesTableLib.h>
+#include <Library/IoLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PeCoffGetEntryPointLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -22,6 +23,8 @@
 #include <Protocol/AcpiSystemDescriptionTable.h>
 #include <Protocol/PciIo.h>
 #include <Protocol/Rp1Bus.h>
+#include <Protocol/RpiFirmware.h>
+#include <Rp1.h>
 #include <RpiPlatformVarStoreData.h>
 #include <Rpi5McfgTable.h>
 #include <ConfigVars.h>
@@ -181,6 +184,39 @@ DsdtFixupSd (
 
 STATIC
 VOID
+Rp1ProgramGemMac (
+  IN RP1_BUS_PROTOCOL  *Rp1Bus
+  )
+{
+  EFI_STATUS                      Status;
+  RASPBERRY_PI_FIRMWARE_PROTOCOL  *Firmware;
+  UINT8                           Mac[6];
+  EFI_PHYSICAL_ADDRESS            GemBase;
+
+  Status = gBS->LocateProtocol (
+                  &gRaspberryPiFirmwareProtocolGuid,
+                  NULL,
+                  (VOID **)&Firmware
+                  );
+  if (EFI_ERROR (Status) || EFI_ERROR (Firmware->GetMacAddress (Mac))) {
+    return;
+  }
+
+  // SA1T latches the station address, so write SA1B first.
+  GemBase = Rp1Bus->GetPeripheralBase (Rp1Bus) + RP1_ETH_BASE;
+  MmioWrite32 (
+    (UINTN)(GemBase + 0x88),
+    (UINT32)Mac[0] | ((UINT32)Mac[1] << 8) |
+    ((UINT32)Mac[2] << 16) | ((UINT32)Mac[3] << 24)
+    );
+  MmioWrite32 (
+    (UINTN)(GemBase + 0x8C),
+    (UINT32)Mac[4] | ((UINT32)Mac[5] << 8)
+    );
+}
+
+STATIC
+VOID
 EFIAPI
 DsdtFixupRp1 (
   IN EFI_ACPI_SDT_PROTOCOL    *AcpiSdtProtocol,
@@ -243,6 +279,8 @@ DsdtFixupRp1 (
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a: Failed to patch PBAR. Status=%r\n", __func__, Status));
   }
+
+  Rp1ProgramGemMac (Rp1Bus);
 }
 
 STATIC
@@ -407,6 +445,7 @@ FindPeImageBase (
 }
 
 STATIC CHAR8 mWinLoadNameStr[] = "winload";
+STATIC CHAR8 mFreeLdrNameStr[] = "FreeLoader";
 #define PDB_NAME_MAX_LENGTH   256
 
 STATIC
@@ -436,6 +475,55 @@ IsPeImageWinLoader (
   return FALSE;
 }
 
+//
+// FreeLoader leaves the CodeView PDB name empty. Match its product name in the
+// loaded image instead.
+//
+STATIC
+BOOLEAN
+EFIAPI
+IsPeImageFreeLoader (
+  IN VOID *PeImage
+  )
+{
+  EFI_IMAGE_DOS_HEADER                 *DosHdr;
+  EFI_IMAGE_OPTIONAL_HEADER_PTR_UNION  Hdr;
+  CONST UINT8                          *Image;
+  UINT32                               SizeOfImage;
+  UINTN                                NameLen;
+  UINTN                                Index;
+
+  DosHdr = (EFI_IMAGE_DOS_HEADER *)PeImage;
+  if (DosHdr->e_magic != EFI_IMAGE_DOS_SIGNATURE) {
+    return FALSE;
+  }
+
+  Hdr.Pe32 = (EFI_IMAGE_NT_HEADERS32 *)((UINT8 *)PeImage + DosHdr->e_lfanew);
+  if (Hdr.Pe32->Signature != EFI_IMAGE_NT_SIGNATURE) {
+    return FALSE;
+  }
+
+  if (Hdr.Pe32->OptionalHeader.Magic == EFI_IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+    SizeOfImage = Hdr.Pe32Plus->OptionalHeader.SizeOfImage;
+  } else {
+    SizeOfImage = Hdr.Pe32->OptionalHeader.SizeOfImage;
+  }
+
+  NameLen = sizeof (mFreeLdrNameStr) - sizeof (CHAR8);
+  if (SizeOfImage < NameLen) {
+    return FALSE;
+  }
+
+  Image = (CONST UINT8 *)PeImage;
+  for (Index = 0; Index <= SizeOfImage - NameLen; Index++) {
+    if (CompareMem (Image + Index, mFreeLdrNameStr, NameLen) == 0) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
 STATIC
 EFI_STATUS
 EFIAPI
@@ -456,7 +544,8 @@ AcpiExitBootServicesHook (
 
   OsLoaderAddress = FindPeImageBase (ReturnAddress);
   if (OsLoaderAddress > 0) {
-    if (IsPeImageWinLoader ((VOID *)OsLoaderAddress)) {
+    if (IsPeImageWinLoader ((VOID *)OsLoaderAddress) ||
+        IsPeImageFreeLoader ((VOID *)OsLoaderAddress)) {
       OsType = AcpiOsWindows;
     }
   }
