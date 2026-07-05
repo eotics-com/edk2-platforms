@@ -458,5 +458,78 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
       }
     } // Device (SDC1)
 
+    // VideoCore VII GPU (V3D 7.1) + HVS/PixelValve display pipeline.
+    Device (GPU0) {
+      Name (_HID, "BCM2712")
+      Name (_CID, "BCM2850")
+      Name (_UID, 0x0)
+      Name (_CCA, 0x0)
+
+      Method (_STA) {
+        Return (0xF)
+      }
+
+      Method (_CRS, 0x0, Serialized) {
+        Name (RBUF, ResourceTemplate () {
+          QWORDMEMORY_BUF (00, ResourceConsumer)
+          QWORDMEMORY_BUF (01, ResourceConsumer)
+          QWORDMEMORY_BUF (02, ResourceConsumer)
+          QWORDMEMORY_BUF (03, ResourceConsumer)
+          QWORDMEMORY_BUF (04, ResourceConsumer)
+          QWORDMEMORY_BUF (05, ResourceConsumer)
+          QWORDMEMORY_BUF (06, ResourceConsumer)
+          QWORDMEMORY_BUF (07, ResourceConsumer)
+          QWORDMEMORY_BUF (08, ResourceConsumer)
+          QWORDMEMORY_BUF (09, ResourceConsumer)
+          Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { BCM2712_V3D_CORE_INTERRUPT }
+          Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { BCM2712_V3D_HUB_INTERRUPT }
+          Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { BCM2712_PIXELVALVE0_INTERRUPT }
+          Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { BCM2712_PIXELVALVE1_INTERRUPT }
+        })
+        QWORD_SET (00, BCM2712_V3D_HUB_BASE,     BCM2712_V3D_HUB_LENGTH,     0)
+        QWORD_SET (01, BCM2712_V3D_CORE0_BASE,   BCM2712_V3D_CORE0_LENGTH,   0)
+        QWORD_SET (02, BCM2712_V3D_SMS_BASE,     BCM2712_V3D_SMS_LENGTH,     0)
+        QWORD_SET (03, BCM2712_HVS_BASE,         BCM2712_HVS_LENGTH,         0)
+        QWORD_SET (04, BCM2712_HVS_IOMMU_BASE,   BCM2712_HVS_IOMMU_LENGTH,   0)
+        QWORD_SET (05, BCM2712_PIXELVALVE0_BASE, BCM2712_PIXELVALVE0_LENGTH, 0)
+        QWORD_SET (06, BCM2712_PIXELVALVE1_BASE, BCM2712_PIXELVALVE1_LENGTH, 0)
+        QWORD_SET (07, BCM2712_MOP_BASE,         BCM2712_MOP_LENGTH,         0)
+        QWORD_SET (08, BCM2712_MOPLET_BASE,      BCM2712_MOPLET_LENGTH,      0)
+        QWORD_SET (09, BCM2712_DISP_INTR_BASE,   BCM2712_DISP_INTR_LENGTH,   0)
+        Return (RBUF)
+      }
+
+      // DXGK power components.
+      Method (PMCD, 0, Serialized) {
+        Name (RBUF, Package () {
+          1, // Version
+          1, // Component count
+          Package () {
+            Package () {
+              0, // Component index
+              0, // Engine component
+              0, // Node index
+
+              // 9B2D1E26-1575-4747-8FC0-B9EB4BAA2D2B
+              Buffer () {
+                0x26, 0x1E, 0x2D, 0x9B, 0x75, 0x15, 0x47, 0x47,
+                0x8f, 0xc0, 0xb9, 0xeb, 0x4b, 0xaa, 0x2d, 0x2b
+              },
+
+              "V3D_Engine_00",
+              2,
+
+              // { TransitionLatency, ResidencyRequirement, NominalPower }
+              Package () {
+                Package () { 0, 0, 1210000 },     // F0
+                Package () { 10000, 10000, 4 },   // F1
+              }
+            }
+          }
+        })
+        Return (RBUF)
+      }
+    } // Device (GPU0)
+
   } // Scope (\_SB_)
 } // DefinitionBlock
