@@ -73,9 +73,13 @@ InitGpioPinctrls (
   GpioSetFunction (BCM2712_GIO_AON, 5, GIO_AON_PIN5_ALT_SD_CARD_G);
   GpioSetPull (BCM2712_GIO_AON, 5, BCM2712_GPIO_PIN_PULL_UP);
 
-  // Enable microSD slot power.
-  GpioWrite (BCM2712_GIO_AON, 4, TRUE);
+  // ACPI owns the microSD power rail and starts with it off.
+  GpioWrite (BCM2712_GIO_AON, 4, FALSE);
   GpioSetDirection (BCM2712_GIO_AON, 4, BCM2712_GPIO_PIN_OUTPUT);
+
+  // Default the microSD signaling voltage to 3.3 V.
+  GpioWrite (BCM2712_GIO_AON, 3, FALSE);
+  GpioSetDirection (BCM2712_GIO_AON, 3, BCM2712_GPIO_PIN_OUTPUT);
 
   // Route SDIO to Wi-Fi
   GpioSetFunction (BCM2712_GIO, 30, GIO_PIN30_ALT_SD2);
