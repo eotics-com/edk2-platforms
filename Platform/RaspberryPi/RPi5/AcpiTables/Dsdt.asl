@@ -269,12 +269,20 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
       OperationRegion (GPIO, SystemMemory, BCM2712_BRCMSTB_GIO_AON_BASE, BCM2712_BRCMSTB_GIO_AON_LENGTH)
       Field (GPIO, DWordAcc, NoLock, Preserve) {
         Offset (0x4),
-        DATA, 32,     // BIT3 = GPIO 3, 1.8v switch
+        DATA, 32,     // GPIO 3: 1.8 V select; GPIO 4: slot power
       }
 
       Method (_INI, 0, Serialized) {
         DATA &= ~(1 << 3)
       }
+
+      // microSD slot power, GIO_AON pin 4.
+      PowerResource (SDVD, 0x0, 0x0) {
+        Method (_STA) { Return ((DATA >> 4) & 0x1) }
+        Method (_ON)  { DATA |= (1 << 4); Sleep (20) }
+        Method (_OFF) { DATA &= ~(1 << 4) }
+      }
+      Name (_PR0, Package () { SDVD })
 
       Method (_DSM, 4, Serialized) {
         // Check the UUID
