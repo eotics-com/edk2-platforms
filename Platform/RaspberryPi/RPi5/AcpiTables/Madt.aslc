@@ -10,6 +10,7 @@
  *
  **/
 
+#include <AcpiHelperMacros.h>
 #include <IndustryStandard/Acpi.h>
 #include <Library/AcpiLib.h>
 #include <Library/ArmLib.h>
