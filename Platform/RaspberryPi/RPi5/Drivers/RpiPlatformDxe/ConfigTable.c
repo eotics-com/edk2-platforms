@@ -15,6 +15,8 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/DxeServicesTableLib.h>
+#include <Library/FdtLib.h>
+#include <Library/FdtPlatformLib.h>
 #include <Library/IoLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PeCoffGetEntryPointLib.h>
@@ -61,6 +63,34 @@ typedef enum {
 } ACPI_OS_BOOT_TYPE;
 
 #define SDT_PATTERN_LEN  (AML_NAME_SEG_SIZE + 1)
+
+#define RP1_CLK_PWM1_CTRL              (RP1_CLOCKS_MAIN_BASE + 0x084)
+#define RP1_CLK_PWM1_DIV_INT           (RP1_CLOCKS_MAIN_BASE + 0x088)
+#define RP1_CLK_PWM1_DIV_FRAC          (RP1_CLOCKS_MAIN_BASE + 0x08C)
+#define RP1_CLK_CTRL_AUXSRC_MASK       0x000003E0
+#define RP1_CLK_CTRL_AUXSRC_XOSC       (2U << 5)
+#define RP1_CLK_CTRL_SRC_MASK          BIT0
+#define RP1_CLK_CTRL_SRC_AUX           BIT0
+#define RP1_CLK_CTRL_ENABLE            BIT11
+
+#define RP1_FAN_GPIO_CTRL              (RP1_IO_BANK2_BASE + 0x5C)
+#define RP1_FAN_PAD_CTRL               (RP1_PADS_BANK2_BASE + 0x30)
+#define RP1_GPIO_FUNCSEL_MASK          0x0000001F
+#define RP1_GPIO_OVERRIDE_MASK         0x0003F000
+#define RP1_PAD_PULL_MASK              0x0000000C
+#define RP1_PAD_PULL_DOWN              0x00000004
+#define RP1_PAD_OUT_DISABLE            BIT7
+
+#define RP1_PWM_GLOBAL_CTRL            (RP1_PWM1_BASE + 0x000)
+#define RP1_PWM_CHANNEL3_CTRL          (RP1_PWM1_BASE + 0x044)
+#define RP1_PWM_CHANNEL3_RANGE         (RP1_PWM1_BASE + 0x048)
+#define RP1_PWM_CHANNEL3_DUTY          (RP1_PWM1_BASE + 0x050)
+#define RP1_PWM_CHANNEL3_ENABLE        BIT3
+#define RP1_PWM_CHANNEL_DEFAULT        (BIT8 | BIT0)
+#define RP1_PWM_POLARITY_INVERTED      BIT3
+#define RP1_PWM_SET_UPDATE             BIT31
+#define RP1_FAN_PWM_RANGE              2078U
+#define RP1_FAN_PWM_LOW                75U
 
 //
 // Simple NameOp integer patcher.
@@ -216,6 +246,92 @@ Rp1ProgramGemMac (
 }
 
 STATIC
+BOOLEAN
+Rp1FanIsPresent (
+  VOID
+  )
+{
+  CONST CHAR8  *Compatible;
+  CONST CHAR8  *NodeStatus;
+  VOID         *Fdt;
+  INT32        Length;
+  INT32        Node;
+
+  Fdt = FdtPlatformGetBase ();
+  if (Fdt == NULL) {
+    return FALSE;
+  }
+
+  Node = FdtPathOffset (Fdt, "/cooling_fan");
+  if (Node < 0) {
+    return FALSE;
+  }
+
+  Compatible = FdtGetProp (Fdt, Node, "compatible", &Length);
+  if ((Compatible == NULL) ||
+      !FdtStringListContains (Compatible, Length, "pwm-fan"))
+  {
+    return FALSE;
+  }
+
+  NodeStatus = FdtGetProp (Fdt, Node, "status", &Length);
+  if ((NodeStatus == NULL) || (Length <= 0) ||
+      (NodeStatus[Length - 1] != '\0'))
+  {
+    return FALSE;
+  }
+
+  return (AsciiStrCmp (NodeStatus, "okay") == 0) ||
+         (AsciiStrCmp (NodeStatus, "ok") == 0);
+}
+
+STATIC
+VOID
+Rp1ProgramFan (
+  IN RP1_BUS_PROTOCOL  *Rp1Bus
+  )
+{
+  EFI_PHYSICAL_ADDRESS  Base;
+  UINT32                Register;
+
+  Base = Rp1Bus->GetPeripheralBase (Rp1Bus);
+
+  // Drive PWM1 directly from the 50 MHz crystal clock.
+  MmioWrite32 (Base + RP1_CLK_PWM1_DIV_INT, 1);
+  MmioWrite32 (Base + RP1_CLK_PWM1_DIV_FRAC, 0);
+  Register  = MmioRead32 (Base + RP1_CLK_PWM1_CTRL);
+  Register &= ~(RP1_CLK_CTRL_AUXSRC_MASK | RP1_CLK_CTRL_SRC_MASK);
+  Register |= RP1_CLK_CTRL_AUXSRC_XOSC | RP1_CLK_CTRL_SRC_AUX |
+              RP1_CLK_CTRL_ENABLE;
+  MmioWrite32 (Base + RP1_CLK_PWM1_CTRL, Register);
+
+  // GPIO45 is PWM1 channel 3 and uses a pull-down on the Pi 5 fan header.
+  Register  = MmioRead32 (Base + RP1_FAN_PAD_CTRL);
+  Register &= ~(RP1_PAD_PULL_MASK | RP1_PAD_OUT_DISABLE);
+  Register |= RP1_PAD_PULL_DOWN;
+  MmioWrite32 (Base + RP1_FAN_PAD_CTRL, Register);
+
+  Register  = MmioRead32 (Base + RP1_FAN_GPIO_CTRL);
+  Register &= ~(RP1_GPIO_FUNCSEL_MASK | RP1_GPIO_OVERRIDE_MASK);
+  MmioWrite32 (Base + RP1_FAN_GPIO_CTRL, Register);
+
+  // Start at the lowest cooling level; ACPI takes ownership from here.
+  MmioWrite32 (Base + RP1_PWM_CHANNEL3_RANGE, RP1_FAN_PWM_RANGE);
+  MmioWrite32 (
+    Base + RP1_PWM_CHANNEL3_DUTY,
+    (RP1_FAN_PWM_RANGE * RP1_FAN_PWM_LOW) / 255
+    );
+  MmioWrite32 (
+    Base + RP1_PWM_CHANNEL3_CTRL,
+    RP1_PWM_CHANNEL_DEFAULT | RP1_PWM_POLARITY_INVERTED
+    );
+
+  Register  = MmioRead32 (Base + RP1_PWM_GLOBAL_CTRL);
+  Register |= RP1_PWM_CHANNEL3_ENABLE | RP1_PWM_SET_UPDATE;
+  MmioWrite32 (Base + RP1_PWM_GLOBAL_CTRL, Register);
+}
+
+STATIC
 VOID
 EFIAPI
 DsdtFixupRp1 (
@@ -223,6 +339,7 @@ DsdtFixupRp1 (
   IN EFI_ACPI_HANDLE          TableHandle
   )
 {
+  BOOLEAN           FanPresent;
   EFI_STATUS        Status;
   RP1_BUS_PROTOCOL  *Rp1Bus;
   UINTN             HandleCount;
@@ -281,6 +398,38 @@ DsdtFixupRp1 (
   }
 
   Rp1ProgramGemMac (Rp1Bus);
+
+  FanPresent = Rp1FanIsPresent ();
+
+  Status = AcpiAmlObjectUpdateInteger (
+             AcpiSdtProtocol,
+             TableHandle,
+             "\\_SB.RP1B.FSTA",
+             FanPresent ? 0xF : 0x0
+             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: Failed to patch FSTA. Status=%r\n", __func__, Status));
+    return;
+  }
+
+  if (!FanPresent) {
+    DEBUG ((DEBUG_INFO, "%a: No bootloader-detected Pi 5 fan\n", __func__));
+    return;
+  }
+
+  Status = AcpiAmlObjectUpdateInteger (
+             AcpiSdtProtocol,
+             TableHandle,
+             "\\_SB.RP1B.FRQS",
+             0x1
+             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: Failed to patch FRQS. Status=%r\n", __func__, Status));
+    return;
+  }
+
+  Rp1ProgramFan (Rp1Bus);
+  DEBUG ((DEBUG_INFO, "%a: Pi 5 fan exposed through ACPI\n", __func__));
 }
 
 STATIC

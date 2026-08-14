@@ -81,3 +81,152 @@ Device (ETH0) {
     }
   })
 }
+
+//
+// The Pi 5 fan is one physical four-speed fan. Windows only supports the
+// ACPI 1.0 D-state fan interface, so model each speed as a logical fan and
+// combine their shared power resources as described by the ACPI specification.
+//
+Name (FSTA, 0xFE) // Patched to 0x0 or 0xF after fan detection.
+Name (FRQS, Zero) // Active cooling-level requests, low through maximum.
+Mutex (FMUT, 0)
+
+OperationRegion (FANR, SystemMemory, PBAR + RP1_PWM1_BASE, 0x54)
+Field (FANR, DWordAcc, NoLock, Preserve) {
+  GCTL, 32,
+  Offset (0x3C),
+  FRPM, 32,
+  Offset (0x44),
+  CCTL, 32,
+  FRNG, 32,
+  Offset (0x50),
+  FDUT, 32
+}
+
+Method (FUPD, 0, NotSerialized) {
+  Local0 = Zero
+
+  If (FRQS & 0x8) {
+    Local0 = (FRNG * 250) / 255
+  } ElseIf (FRQS & 0x4) {
+    Local0 = (FRNG * 175) / 255
+  } ElseIf (FRQS & 0x2) {
+    Local0 = (FRNG * 125) / 255
+  } ElseIf (FRQS & 0x1) {
+    Local0 = (FRNG * 75) / 255
+  }
+
+  FDUT = Local0
+  Local1 = GCTL
+  If (Local0 == Zero) {
+    Local1 = Local1 & 0xFFFFFFF7
+  } Else {
+    Local1 = Local1 | 0x8
+  }
+  GCTL = Local1 | 0x80000000
+}
+
+Method (FCHG, 2, Serialized) {
+  Acquire (FMUT, 0xFFFF)
+  If (Arg1) {
+    FRQS = FRQS | Arg0
+  } Else {
+    FRQS = FRQS & (Arg0 ^ 0xF)
+  }
+  FUPD ()
+  Release (FMUT)
+}
+
+Method (FPST, 1, Serialized) {
+  Acquire (FMUT, 0xFFFF)
+  Local0 = FRQS & Arg0
+  Release (FMUT)
+
+  If (Local0) {
+    Return (One)
+  }
+  Return (Zero)
+}
+
+Method (FFST, 2, Serialized) {
+  Local2 = Package () { Zero, Zero, Zero }
+
+  Acquire (FMUT, 0xFFFF)
+  Local0 = FRQS & Arg0
+  Local1 = FRPM
+  Release (FMUT)
+
+  If (Local0) {
+    Store (Arg1, Index (Local2, 1))
+    Store (Local1, Index (Local2, 2))
+  }
+  Return (Local2)
+}
+
+PowerResource (FP00, 0, 0) {
+  Method (_STA, 0, Serialized) { Return (FPST (0x1)) }
+  Method (_ON, 0, Serialized)  { FCHG (0x1, One) }
+  Method (_OFF, 0, Serialized) { FCHG (0x1, Zero) }
+}
+
+PowerResource (FP01, 0, 0) {
+  Method (_STA, 0, Serialized) { Return (FPST (0x2)) }
+  Method (_ON, 0, Serialized)  { FCHG (0x2, One) }
+  Method (_OFF, 0, Serialized) { FCHG (0x2, Zero) }
+}
+
+PowerResource (FP02, 0, 0) {
+  Method (_STA, 0, Serialized) { Return (FPST (0x4)) }
+  Method (_ON, 0, Serialized)  { FCHG (0x4, One) }
+  Method (_OFF, 0, Serialized) { FCHG (0x4, Zero) }
+}
+
+PowerResource (FP03, 0, 0) {
+  Method (_STA, 0, Serialized) { Return (FPST (0x8)) }
+  Method (_ON, 0, Serialized)  { FCHG (0x8, One) }
+  Method (_OFF, 0, Serialized) { FCHG (0x8, Zero) }
+}
+
+Device (FN00) {
+  Name (_HID, EISAID ("PNP0C0B"))
+  Name (_UID, 0)
+  Method (_STA, 0, NotSerialized) {
+    If (FSTA == 0xF) { Return (FSTA) }
+    Return (Zero)
+  }
+  Name (_PR0, Package () { FP03, FP02, FP01, FP00 })
+  Method (_FST, 0, Serialized) { Return (FFST (0x8, 250)) }
+}
+
+Device (FN01) {
+  Name (_HID, EISAID ("PNP0C0B"))
+  Name (_UID, 1)
+  Method (_STA, 0, NotSerialized) {
+    If (FSTA == 0xF) { Return (FSTA) }
+    Return (Zero)
+  }
+  Name (_PR0, Package () { FP02, FP01, FP00 })
+  Method (_FST, 0, Serialized) { Return (FFST (0x4, 175)) }
+}
+
+Device (FN02) {
+  Name (_HID, EISAID ("PNP0C0B"))
+  Name (_UID, 2)
+  Method (_STA, 0, NotSerialized) {
+    If (FSTA == 0xF) { Return (FSTA) }
+    Return (Zero)
+  }
+  Name (_PR0, Package () { FP01, FP00 })
+  Method (_FST, 0, Serialized) { Return (FFST (0x2, 125)) }
+}
+
+Device (FN03) {
+  Name (_HID, EISAID ("PNP0C0B"))
+  Name (_UID, 3)
+  Method (_STA, 0, NotSerialized) {
+    If (FSTA == 0xF) { Return (FSTA) }
+    Return (Zero)
+  }
+  Name (_PR0, Package () { FP00 })
+  Method (_FST, 0, Serialized) { Return (FFST (0x1, 75)) }
+}

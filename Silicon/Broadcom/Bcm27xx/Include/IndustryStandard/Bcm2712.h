@@ -28,6 +28,14 @@
 #define BCM2712_PINCTRL_AON_BASE                          0x107d510700
 #define BCM2712_PINCTRL_AON_LENGTH                        0x1C
 
+#define BCM2712_AVS_MONITOR_BASE                          0x107d542000
+#define BCM2712_AVS_MONITOR_LENGTH                        0xF00
+#define BCM2712_AVS_MONITOR_TEMP_STATUS_OFFSET            0x200
+#define BCM2712_AVS_MONITOR_TEMP_VALID_MASK               0x00010400
+#define BCM2712_AVS_MONITOR_TEMP_DATA_MASK                0x000003FF
+#define BCM2712_AVS_MONITOR_TEMP_OFFSET_MC                450000
+#define BCM2712_AVS_MONITOR_TEMP_SLOPE_MC                 550
+
 #define BCM2712_BRCMSTB_SDIO1_HOST_BASE                   0x1000fff000
 #define BCM2712_BRCMSTB_SDIO1_CFG_BASE                    0x1000fff400
 #define BCM2712_BRCMSTB_SDIO2_HOST_BASE                   0x1001100000

@@ -41,6 +41,8 @@
   DebugLib
   DevicePathLib
   DxeServicesTableLib
+  FdtLib
+  FdtPlatformLib
   HiiLib
   IoLib
   MemoryAllocationLib

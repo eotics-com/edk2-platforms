@@ -539,5 +539,72 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
       }
     } // Device (GPU0)
 
+    // Windows can use this device for passive logical-processor idling.
+    Device (PAG0) {
+      Name (_HID, "ACPI000C")
+      Name (_UID, 0x0)
+      Name (_STA, 0xF)
+      Name (_PUR, Package () { 1, 0 })
+    }
+
+    // BCM2712 AVS temperature sensor.
+    OperationRegion (
+      THRM,
+      SystemMemory,
+      BCM2712_AVS_MONITOR_BASE + BCM2712_AVS_MONITOR_TEMP_STATUS_OFFSET,
+      0x4
+      )
+    Field (THRM, DWordAcc, NoLock, Preserve) {
+      TVAL, 32
+    }
+
+    ThermalZone (TZ00) {
+      // A failed sample retains a conservative 75 C reading until valid data
+      // becomes available, keeping maximum active cooling engaged.
+      Name (LTMP, 3482)
+
+      Method (_TMP, 0, Serialized) {
+        Local0 = TVAL
+        If (Local0 & BCM2712_AVS_MONITOR_TEMP_VALID_MASK) {
+          Local1 = Local0 & BCM2712_AVS_MONITOR_TEMP_DATA_MASK
+          If (Local1 > 818) {
+            LTMP = 2732
+          } Else {
+            LTMP = ((BCM2712_AVS_MONITOR_TEMP_OFFSET_MC -
+                     (Local1 * BCM2712_AVS_MONITOR_TEMP_SLOPE_MC)) / 100) + 2732
+          }
+        }
+        Return (LTMP)
+      }
+
+      Name (_RTV, Zero)
+      Name (_CRT, 3832) // 110 C
+      Name (_PSV, 3532) // 80 C
+      Name (_TC1, 2)
+      Name (_TC2, 3)
+      Name (_TSP, 10)
+
+      // ACPI numbers stronger active cooling with the lower suffix.
+      Name (_AC0, 3482) // 75 C, 250/255 PWM
+      Name (_AL0, Package () { \_SB.RP1B.FN00 })
+      Name (_AC1, 3407) // 67.5 C, 175/255 PWM
+      Name (_AL1, Package () { \_SB.RP1B.FN01 })
+      Name (_AC2, 3332) // 60 C, 125/255 PWM
+      Name (_AL2, Package () { \_SB.RP1B.FN02 })
+      Name (_AC3, 3232) // 50 C, 75/255 PWM
+      Name (_AL3, Package () { \_SB.RP1B.FN03 })
+
+      Name (_TZP, 10)
+      Name (_TZD, Package () {
+        \_SB.CPU0,
+        \_SB.CPU1,
+        \_SB.CPU2,
+        \_SB.CPU3,
+        \_SB.GPU0,
+        \_SB.PAG0
+      })
+      Name (_STR, Unicode ("BCM2712 SoC thermal zone"))
+    }
+
   } // Scope (\_SB_)
 } // DefinitionBlock
