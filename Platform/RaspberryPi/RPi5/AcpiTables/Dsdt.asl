@@ -42,6 +42,521 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
     }
 
     //
+    // VideoCore property-mailbox telemetry. The platform driver patches these
+    // addresses and capability masks only after probing the running firmware.
+    //
+    Name (MBEN, ACPI_PATCH_BYTE_VALUE)
+    Name (PMEN, ACPI_PATCH_BYTE_VALUE) // Standard ACPI power meter available
+    Name (MBPA, ACPI_PATCH_QWORD_VALUE) // Mailbox MMIO address
+    Name (MBCA, ACPI_PATCH_QWORD_VALUE) // CPU address of shared command page
+    Name (MBBA, ACPI_PATCH_QWORD_VALUE) // VideoCore bus address of command page
+    Name (TMLO, ACPI_PATCH_DWORD_VALUE) // Valid firmware temperature IDs
+    Name (VMLO, ACPI_PATCH_DWORD_VALUE) // Valid firmware voltage IDs
+    Name (RTCP, ACPI_PATCH_DWORD_VALUE) // Valid RTC telemetry registers
+    Name (PVLO, ACPI_PATCH_DWORD_VALUE) // Valid PMIC voltage ADC IDs
+    Name (PILO, ACPI_PATCH_DWORD_VALUE) // Valid PMIC current ADC IDs
+    Name (PSMW, ACPI_PATCH_DWORD_VALUE) // Power-source maximum output, mW
+    Name (PSMC, ACPI_PATCH_DWORD_VALUE) // Advertised source current, mA
+    Name (PSRR, ACPI_PATCH_DWORD_VALUE) // PMIC reset reason
+    Name (PSUH, ACPI_PATCH_DWORD_VALUE) // USB high-current mode
+    Name (PSOC, ACPI_PATCH_DWORD_VALUE) // USB over-current detected
+
+    OperationRegion (MBXR, SystemMemory, MBPA, 0x24)
+    Field (MBXR, DWordAcc, NoLock, Preserve) {
+      MBRD, 32,
+      Offset (0x18),
+      MBST, 32,
+      Offset (0x20),
+      MBWR, 32
+    }
+
+    OperationRegion (MBCM, SystemMemory, MBCA, 0x1000)
+    Field (MBCM, DWordAcc, NoLock, Preserve) {
+      MBSZ, 32,
+      MBRS, 32,
+      MBTG, 32,
+      MBTS, 32,
+      MBVS, 32,
+      MBID, 32,
+      MBVL, 32,
+      MBET, 32,
+      Offset (0xF00),
+      FWAC, 32,
+      Offset (0xF40),
+      ACAC, 32,
+      Offset (0xF80),
+      MBTR, 32
+    }
+
+    // GET_GENCMD_RESULT overlays the generic tag value at offset 0x14. The
+    // first DWORD is command status and the remaining 2044 bytes contain the
+    // command or response string. Its end tag is at offset 0x814.
+    Field (MBCM, ByteAcc, NoLock, Preserve) {
+      Offset (0x14),
+      GCST, 32,
+      Offset (0x18),
+      GCDB, 16352,
+      Offset (0x814),
+      GCET, 32
+    }
+
+    Method (MBLK, 0, Serialized) {
+      ACAC = One
+      MBTR = Zero // Give priority to the firmware runtime-service side.
+
+      If ((FWAC != Zero) && (MBTR == Zero)) {
+        ACAC = Zero
+        Return (Zero)
+      }
+
+      Return (One)
+    }
+
+    Method (MBUL, 0, Serialized) {
+      ACAC = Zero
+    }
+
+    Method (MBIO, 0, Serialized) {
+      // Drain stale responses before issuing a new property request.
+      Local0 = Zero
+      While ((MBST & 0x40000000) == Zero) {
+        Local1 = MBRD
+        Local0++
+        If (Local0 >= 64) {
+          Return (Zero)
+        }
+      }
+
+      // Wait at most 10 ms for room in the outbound mailbox.
+      Local0 = Zero
+      While (MBST & 0x80000000) {
+        Stall (10)
+        Local0++
+        If (Local0 >= 1000) {
+          Return (Zero)
+        }
+      }
+
+      // Read both possible end-tag locations before ringing the doorbell.
+      Local1 = MBET
+      Local1 = GCET
+      Local2 = MBBA | 8
+      MBWR = Local2
+
+      // Wait at most 10 ms and consume unrelated channel responses.
+      Local0 = Zero
+      While (Local0 < 1000) {
+        If ((MBST & 0x40000000) == Zero) {
+          Local1 = MBRD
+          If (Local1 == Local2) {
+            Return (One)
+          }
+        }
+
+        Stall (10)
+        Local0++
+      }
+
+      Return (Zero)
+    }
+
+    Method (MBTX, 2, Serialized) {
+      Local3 = Ones
+      If ((MBEN != One) || (MBLK () == Zero)) {
+        Return (Local3)
+      }
+
+      MBSZ = 32
+      MBRS = Zero
+      MBTG = Arg0
+      MBTS = 8
+      MBVS = Zero
+      MBID = Arg1
+      MBVL = Zero
+      MBET = Zero
+
+      If (MBIO () &&
+          (MBRS == 0x80000000) &&
+          (MBVS & 0x80000000) &&
+          ((MBVS & 0x7FFFFFFF) >= 8))
+      {
+        Local3 = MBVL
+      }
+
+      MBUL ()
+      Return (Local3)
+    }
+
+    Method (GCMQ, 1, Serialized) {
+      Local7 = Buffer () {}
+      If ((MBEN != One) || (MBLK () == Zero)) {
+        Return (Local7)
+      }
+
+      GCDB = Buffer (0x7FC) {}
+      GCDB = ToBuffer (Arg0)
+      MBSZ = 0x818
+      MBRS = Zero
+      MBTG = 0x00030080
+      MBTS = 0x800
+      MBVS = Zero
+      GCST = Zero
+      GCET = Zero
+
+      If (MBIO () &&
+          (MBRS == 0x80000000) &&
+          (MBVS & 0x80000000) &&
+          ((MBVS & 0x7FFFFFFF) >= 4) &&
+          (GCST == Zero))
+      {
+        Local7 = GCDB
+      }
+
+      MBUL ()
+      Return (Local7)
+    }
+
+    // Parse pmic_read_adc's channel-id and decimal value, returning microvolts
+    // or microamps. The channel IDs are unique across both measurement types.
+    Method (PVAL, 2, Serialized) {
+      Local0 = SizeOf (Arg0)
+      Local1 = Zero
+      While (Local1 < Local0) {
+        Local2 = DerefOf (Index (Arg0, Local1))
+        If (Local2 == Zero) {
+          Return (Ones)
+        }
+
+        If (Local2 == 0x28) { // '('
+          Local3 = Zero
+          Local4 = Zero
+          Local1++
+          While (Local1 < Local0) {
+            Local2 = DerefOf (Index (Arg0, Local1))
+            If ((Local2 < 0x30) || (Local2 > 0x39)) {
+              Break
+            }
+
+            Local3 = (Local3 * 10) + Local2 - 0x30
+            Local4 = One
+            Local1++
+          }
+
+          If (Local4 && (Local2 == 0x29) && (Local3 == Arg1)) { // ')'
+            While (Local1 < Local0) {
+              Local2 = DerefOf (Index (Arg0, Local1))
+              If ((Local2 == Zero) || (Local2 == 0x0A)) {
+                Return (Ones)
+              }
+
+              If (Local2 == 0x3D) { // '='
+                Break
+              }
+
+              Local1++
+            }
+
+            Local1++
+            Local3 = Zero // Integer part
+            Local4 = Zero // At least one digit
+            While (Local1 < Local0) {
+              Local2 = DerefOf (Index (Arg0, Local1))
+              If ((Local2 < 0x30) || (Local2 > 0x39)) {
+                Break
+              }
+
+              Local3 = (Local3 * 10) + Local2 - 0x30
+              Local4 = One
+              Local1++
+            }
+
+            If (Local4 == Zero) {
+              Return (Ones)
+            }
+
+            Local5 = Zero // Fractional digits consumed
+            Local6 = Zero // Fraction scaled to millionths
+            If (Local2 == 0x2E) { // '.'
+              Local1++
+              While (Local1 < Local0) {
+                Local2 = DerefOf (Index (Arg0, Local1))
+                If ((Local2 < 0x30) || (Local2 > 0x39)) {
+                  Break
+                }
+
+                If (Local5 < 6) {
+                  Local6 = (Local6 * 10) + Local2 - 0x30
+                }
+
+                Local5++
+                Local1++
+              }
+            }
+
+            While (Local5 < 6) {
+              Local6 *= 10
+              Local5++
+            }
+
+            If ((Local2 == 0x41) || (Local2 == 0x56)) { // 'A' or 'V'
+              Return ((Local3 * 1000000) + Local6)
+            }
+
+            Return (Ones)
+          }
+        }
+
+        Local1++
+      }
+
+      Return (Ones)
+    }
+
+    Method (GTMP, 1, Serialized) {
+      If ((Arg0 > 31) || ((TMLO & (One << Arg0)) == Zero)) {
+        Return (Ones)
+      }
+
+      Return (MBTX (0x00030006, Arg0))
+    }
+
+    Method (GVLT, 1, Serialized) {
+      If ((Arg0 > 31) || ((VMLO & (One << Arg0)) == Zero)) {
+        Return (Ones)
+      }
+
+      Return (MBTX (0x00030003, Arg0))
+    }
+
+    Method (GRTC, 1, Serialized) {
+      If ((Arg0 > 31) || ((RTCP & (One << Arg0)) == Zero)) {
+        Return (Ones)
+      }
+
+      Return (MBTX (0x00030087, Arg0))
+    }
+
+    Method (GPAD, 1, Serialized) {
+      If ((Arg0 > 31) || (((PVLO | PILO) & (One << Arg0)) == Zero)) {
+        Return (Ones)
+      }
+
+      Local0 = GCMQ ("pmic_read_adc")
+      Return (PVAL (Local0, Arg0))
+    }
+
+    Method (RPWV, 3, Serialized) {
+      Local0 = PVAL (Arg0, Arg1)
+      Local1 = PVAL (Arg0, Arg2)
+      If ((Local0 == Ones) || (Local1 == Ones)) {
+        Return (Ones)
+      }
+
+      // microamps * microvolts / 1,000,000,000 = milliwatts.
+      Return ((Local0 * Local1) / 1000000000)
+    }
+
+    Method (RPWR, 1, Serialized) {
+      Local0 = GCMQ ("pmic_read_adc")
+      Switch (ToInteger (Arg0)) {
+        Case (0)  { Return (RPWV (Local0, 0, 8)) }
+        Case (1)  { Return (RPWV (Local0, 1, 9)) }
+        Case (2)  { Return (RPWV (Local0, 2, 10)) }
+        Case (3)  { Return (RPWV (Local0, 3, 11)) }
+        Case (4)  { Return (RPWV (Local0, 4, 12)) }
+        Case (5)  { Return (RPWV (Local0, 5, 13)) }
+        Case (6)  { Return (RPWV (Local0, 6, 14)) }
+        Case (7)  { Return (RPWV (Local0, 7, 15)) }
+        Case (16) { Return (RPWV (Local0, 16, 19)) }
+        Case (17) { Return (RPWV (Local0, 17, 20)) }
+        Case (18) { Return (RPWV (Local0, 18, 21)) }
+        Case (22) { Return (RPWV (Local0, 22, 23)) }
+      }
+
+      Return (Ones)
+    }
+
+    Method (TPWR, 0, Serialized) {
+      Local0 = GCMQ ("pmic_read_adc")
+      Local1 = Zero
+      Local2 = Zero
+
+      Local3 = RPWV (Local0, 0, 8)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 1, 9)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 2, 10)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 3, 11)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 4, 12)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 5, 13)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 6, 14)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 7, 15)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 16, 19)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 17, 20)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 18, 21)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+      Local3 = RPWV (Local0, 22, 23)
+      If (Local3 != Ones) { Local1 += Local3; Local2++ }
+
+      If (Local2 == Zero) {
+        Return (Ones)
+      }
+
+      Return (Local1)
+    }
+
+    // The board has no system battery. This describes its external 5 V source
+    // without misrepresenting the RTC backup cell as a control-method battery.
+    Device (PSRC) {
+      Name (_HID, "ACPI0003")
+      Name (_UID, Zero)
+      Name (_STR, Unicode ("Raspberry Pi 5 external power source"))
+      Name (_PCL, Package () { \_SB })
+
+      Method (_PSR, 0, NotSerialized) {
+        Return (One)
+      }
+
+      Method (_PIF, 0, NotSerialized) {
+        Return (Package () {
+          Zero,
+          PSMW,
+          0xFFFFFFFF,
+          "USB-C, PoE, or fixed 5 V input",
+          "",
+          "Maximum power is the boot-firmware advertised 5 V capability"
+        })
+      }
+    }
+
+    // Standard ACPI power meter for the sum of PMIC-managed output rails.
+    // It excludes direct 5 V loads and conversion losses, so _PMD deliberately
+    // does not claim that this is whole-system input power.
+    Device (PMTR) {
+      Name (_HID, "ACPI000D")
+      Name (_UID, Zero)
+      Name (_STR, Unicode ("DA9091 PMIC managed-rail power"))
+
+      Method (_STA, 0, NotSerialized) {
+        Return (PMEN * 0xF)
+      }
+
+      Method (_PMC, 0, NotSerialized) {
+        Return (Package () {
+          One,             // Measurement supported
+          Zero,            // Milliwatts
+          One,             // Output power
+          Zero,            // No published aggregate accuracy guarantee
+          Zero,            // On-demand sample; no firmware-side cache
+          Zero,            // No configurable averaging interval
+          Zero,
+          0xFFFFFFFF,      // Hysteresis unavailable
+          Zero,            // No configurable hardware limit
+          Zero,
+          Zero,
+          "DA9091",
+          "",
+          "Sum of PMIC-managed DC rail outputs"
+        })
+      }
+
+      Method (_PMM, 0, Serialized) {
+        Return (TPWR ())
+      }
+    }
+
+    Device (FTEL) {
+      Name (_HID, "RPI0005")
+      Name (_UID, Zero)
+      Name (_STR, Unicode ("Raspberry Pi firmware telemetry"))
+
+      Method (_STA, 0, NotSerialized) {
+        If (MBEN == One) {
+          Return (0xF)
+        }
+
+        Return (Zero)
+      }
+
+      // 31fdd5d5-6d36-47b7-bce8-74690d661c0c
+      // Function 1 returns { revision, temperature mask, legacy voltage mask,
+      // RTC-register mask, PMIC voltage mask, PMIC current mask }.
+      // Functions 2-7 take one ID in Arg3 and return mC, uV, raw RTC data, uV,
+      // uA, or mW respectively. Function 8 returns boot power-source status.
+      Method (_DSM, 4, Serialized) {
+        If ((Arg0 == ToUUID ("31fdd5d5-6d36-47b7-bce8-74690d661c0c")) &&
+            (Arg1 == One))
+        {
+          Switch (ToInteger (Arg2)) {
+            Case (Zero) {
+              Return (Buffer () { 0xFF, 0x01 })
+            }
+
+            Case (One) {
+              Return (Package () { One, TMLO, VMLO, RTCP, PVLO, PILO })
+            }
+
+            Case (2) {
+              If (SizeOf (Arg3) >= One) {
+                Return (GTMP (DerefOf (Index (Arg3, Zero))))
+              }
+            }
+
+            Case (3) {
+              If (SizeOf (Arg3) >= One) {
+                Return (GVLT (DerefOf (Index (Arg3, Zero))))
+              }
+            }
+
+            Case (4) {
+              If (SizeOf (Arg3) >= One) {
+                Return (GRTC (DerefOf (Index (Arg3, Zero))))
+              }
+            }
+
+            Case (5) {
+              If (SizeOf (Arg3) >= One) {
+                Local0 = DerefOf (Index (Arg3, Zero))
+                If ((Local0 <= 31) && (PVLO & (One << Local0))) {
+                  Return (GPAD (Local0))
+                }
+              }
+            }
+
+            Case (6) {
+              If (SizeOf (Arg3) >= One) {
+                Local0 = DerefOf (Index (Arg3, Zero))
+                If ((Local0 <= 31) && (PILO & (One << Local0))) {
+                  Return (GPAD (Local0))
+                }
+              }
+            }
+
+            Case (7) {
+              If (SizeOf (Arg3) >= One) {
+                Return (RPWR (DerefOf (Index (Arg3, Zero))))
+              }
+            }
+
+            Case (8) {
+              Return (Package () { PSMC, PSMW, PSRR, PSUH, PSOC })
+            }
+          }
+        }
+
+        Return (Buffer () { 0x00 })
+      }
+    }
+
+    //
     // Legacy SOC bus
     //
     Device (SOCB) {
@@ -604,6 +1119,27 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
         \_SB.PAG0
       })
       Name (_STR, Unicode ("BCM2712 SoC thermal zone"))
+    }
+
+    ThermalZone (TZ01) {
+      Name (LTMP, 3482)
+
+      Method (_STA, 0, NotSerialized) {
+        Return (\_SB.RP1B.ASTA)
+      }
+
+      Method (_TMP, 0, Serialized) {
+        Local0 = \_SB.RP1B.RTMP ()
+        If (Local0 != Ones) {
+          LTMP = Local0
+        }
+
+        Return (LTMP)
+      }
+
+      Name (_TZP, 10)
+      Name (_TZD, Package () { \_SB.RP1B })
+      Name (_STR, Unicode ("RP1 I/O controller thermal zone"))
     }
 
   } // Scope (\_SB_)

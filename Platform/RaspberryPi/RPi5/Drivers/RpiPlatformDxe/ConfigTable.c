@@ -67,6 +67,8 @@ typedef enum {
 #define RP1_CLK_PWM1_CTRL              (RP1_CLOCKS_MAIN_BASE + 0x084)
 #define RP1_CLK_PWM1_DIV_INT           (RP1_CLOCKS_MAIN_BASE + 0x088)
 #define RP1_CLK_PWM1_DIV_FRAC          (RP1_CLOCKS_MAIN_BASE + 0x08C)
+#define RP1_CLK_ADC_CTRL               (RP1_CLOCKS_MAIN_BASE + 0x144)
+#define RP1_CLK_ADC_DIV_INT            (RP1_CLOCKS_MAIN_BASE + 0x148)
 #define RP1_CLK_CTRL_AUXSRC_MASK       0x000003E0
 #define RP1_CLK_CTRL_AUXSRC_XOSC       (2U << 5)
 #define RP1_CLK_CTRL_SRC_MASK          BIT0
@@ -91,6 +93,80 @@ typedef enum {
 #define RP1_PWM_SET_UPDATE             BIT31
 #define RP1_FAN_PWM_RANGE              2078U
 #define RP1_FAN_PWM_LOW                75U
+
+#define RP1_ADC_CS                     (RP1_ADC_BASE + 0x000)
+#define RP1_ADC_RESULT                 (RP1_ADC_BASE + 0x004)
+#define RP1_ADC_INTE                   (RP1_ADC_BASE + 0x018)
+#define RP1_ADC_RWTYPE_SET             0x2000
+#define RP1_ADC_RWTYPE_CLR             0x3000
+#define RP1_ADC_CS_AINSEL_MASK         (0x7U << 12)
+#define RP1_ADC_CS_ERR_STICKY          BIT10
+#define RP1_ADC_CS_ERR                 BIT9
+#define RP1_ADC_CS_READY               BIT8
+#define RP1_ADC_CS_START_ONCE          BIT2
+#define RP1_ADC_CS_TS_EN               BIT1
+#define RP1_ADC_CS_EN                  BIT0
+#define RP1_ADC_TEMP_CHANNEL           4U
+#define RP1_ADC_RESULT_MASK            0xFFFU
+
+#define TELEMETRY_TEMPERATURE_ID       0U
+#define TELEMETRY_MIN_VOLTAGE_ID       1U
+#define TELEMETRY_MAX_VOLTAGE_ID       4U
+#define TELEMETRY_MIN_VOLTAGE_UV       100000U
+#define TELEMETRY_MAX_VOLTAGE_UV       6000000U
+#define PMIC_ADC_RESPONSE_SIZE          2048U
+#define PMIC_ADC_MAX_VOLTAGE_UV         6000000U
+#define PMIC_ADC_MAX_CURRENT_UA         20000000U
+
+typedef struct {
+  UINT32       Id;
+  BOOLEAN      IsVoltage;
+  CONST CHAR8  *Name;
+} PMIC_ADC_CHANNEL;
+
+STATIC CONST PMIC_ADC_CHANNEL  mPmicAdcChannels[] = {
+  {  0, FALSE, "3V7_WL_SW_A" },
+  {  1, FALSE, "3V3_SYS_A" },
+  {  2, FALSE, "1V8_SYS_A" },
+  {  3, FALSE, "DDR_VDD2_A" },
+  {  4, FALSE, "DDR_VDDQ_A" },
+  {  5, FALSE, "1V1_SYS_A" },
+  {  6, FALSE, "0V8_SW_A" },
+  {  7, FALSE, "VDD_CORE_A" },
+  {  8, TRUE,  "3V7_WL_SW_V" },
+  {  9, TRUE,  "3V3_SYS_V" },
+  { 10, TRUE,  "1V8_SYS_V" },
+  { 11, TRUE,  "DDR_VDD2_V" },
+  { 12, TRUE,  "DDR_VDDQ_V" },
+  { 13, TRUE,  "1V1_SYS_V" },
+  { 14, TRUE,  "0V8_SW_V" },
+  { 15, TRUE,  "VDD_CORE_V" },
+  { 16, FALSE, "0V8_AON_A" },
+  { 17, FALSE, "3V3_DAC_A" },
+  { 18, FALSE, "3V3_ADC_A" },
+  { 19, TRUE,  "0V8_AON_V" },
+  { 20, TRUE,  "3V3_DAC_V" },
+  { 21, TRUE,  "3V3_ADC_V" },
+  { 22, FALSE, "HDMI_A" },
+  { 23, TRUE,  "HDMI_V" },
+  { 24, TRUE,  "EXT5V_V" },
+  { 25, TRUE,  "BATT_V" },
+};
+
+STATIC CONST UINT8  mPmicAdcPowerPairs[][2] = {
+  {  0,  8 },
+  {  1,  9 },
+  {  2, 10 },
+  {  3, 11 },
+  {  4, 12 },
+  {  5, 13 },
+  {  6, 14 },
+  {  7, 15 },
+  { 16, 19 },
+  { 17, 20 },
+  { 18, 21 },
+  { 22, 23 },
+};
 
 //
 // Simple NameOp integer patcher.
@@ -332,6 +408,61 @@ Rp1ProgramFan (
 }
 
 STATIC
+BOOLEAN
+Rp1ProgramAdc (
+  IN RP1_BUS_PROTOCOL  *Rp1Bus
+  )
+{
+  EFI_PHYSICAL_ADDRESS  Base;
+  UINT32                Register;
+  UINTN                 Retry;
+
+  Base = Rp1Bus->GetPeripheralBase (Rp1Bus);
+
+  // The RP1 ADC has a single 50 MHz parent and an integer-only divider.
+  MmioWrite32 (Base + RP1_CLK_ADC_DIV_INT, 1);
+  Register = MmioRead32 (Base + RP1_CLK_ADC_CTRL);
+  Register |= RP1_CLK_CTRL_ENABLE;
+  MmioWrite32 (Base + RP1_CLK_ADC_CTRL, Register);
+
+  MmioWrite32 (Base + RP1_ADC_INTE, 0);
+  MmioWrite32 (
+    Base + RP1_ADC_CS,
+    RP1_ADC_CS_EN | RP1_ADC_CS_ERR_STICKY
+    );
+
+  // Validate the same internal temperature channel that AML will sample.
+  MmioWrite32 (
+    Base + RP1_ADC_RWTYPE_CLR + RP1_ADC_CS,
+    RP1_ADC_CS_AINSEL_MASK
+    );
+  MmioWrite32 (
+    Base + RP1_ADC_RWTYPE_SET + RP1_ADC_CS,
+    (RP1_ADC_TEMP_CHANNEL << 12) |
+    RP1_ADC_CS_TS_EN |
+    RP1_ADC_CS_START_ONCE
+    );
+
+  for (Retry = 0; Retry < 1000; Retry++) {
+    Register = MmioRead32 (Base + RP1_ADC_CS);
+    if ((Register & RP1_ADC_CS_READY) != 0) {
+      break;
+    }
+
+    CpuPause ();
+  }
+
+  if ((Retry == 1000) || ((Register & RP1_ADC_CS_ERR) != 0) ||
+      ((MmioRead32 (Base + RP1_ADC_RESULT) & ~RP1_ADC_RESULT_MASK) != 0))
+  {
+    DEBUG ((DEBUG_WARN, "%a: RP1 temperature ADC validation failed\n", __func__));
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+STATIC
 VOID
 EFIAPI
 DsdtFixupRp1 (
@@ -339,6 +470,7 @@ DsdtFixupRp1 (
   IN EFI_ACPI_HANDLE          TableHandle
   )
 {
+  BOOLEAN           AdcReady;
   BOOLEAN           FanPresent;
   EFI_STATUS        Status;
   RP1_BUS_PROTOCOL  *Rp1Bus;
@@ -399,6 +531,17 @@ DsdtFixupRp1 (
 
   Rp1ProgramGemMac (Rp1Bus);
 
+  AdcReady = Rp1ProgramAdc (Rp1Bus);
+  Status = AcpiAmlObjectUpdateInteger (
+             AcpiSdtProtocol,
+             TableHandle,
+             "\\_SB.RP1B.ASTA",
+             AdcReady ? 0xF : 0x0
+             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: Failed to patch ASTA. Status=%r\n", __func__, Status));
+  }
+
   FanPresent = Rp1FanIsPresent ();
 
   Status = AcpiAmlObjectUpdateInteger (
@@ -430,6 +573,390 @@ DsdtFixupRp1 (
 
   Rp1ProgramFan (Rp1Bus);
   DEBUG ((DEBUG_INFO, "%a: Pi 5 fan exposed through ACPI\n", __func__));
+}
+
+STATIC
+EFI_STATUS
+PatchDsdtInteger (
+  IN EFI_ACPI_SDT_PROTOCOL  *AcpiSdtProtocol,
+  IN EFI_ACPI_HANDLE        TableHandle,
+  IN CHAR8                  *ObjectPath,
+  IN UINTN                  Value
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = AcpiAmlObjectUpdateInteger (
+             AcpiSdtProtocol,
+             TableHandle,
+             ObjectPath,
+             Value
+             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "%a: Failed to patch %a. Status=%r\n",
+      __func__,
+      ObjectPath,
+      Status
+      ));
+  }
+
+  return Status;
+}
+
+STATIC
+BOOLEAN
+ParsePmicAdcValue (
+  IN  CONST CHAR8             *Response,
+  IN  CONST PMIC_ADC_CHANNEL  *Channel,
+  OUT UINT32                  *Value
+  )
+{
+  CONST CHAR8  *Cursor;
+  CONST CHAR8  *Line;
+  UINTN        FractionDigits;
+  UINTN        NameLength;
+  UINT32       ParsedId;
+  UINT64       Fraction;
+  UINT64       Integer;
+  UINT64       Result;
+  BOOLEAN      HaveDigit;
+  BOOLEAN      RoundUp;
+
+  if ((Response == NULL) || (Channel == NULL) || (Value == NULL)) {
+    return FALSE;
+  }
+
+  NameLength = AsciiStrLen (Channel->Name);
+  Line = Response;
+  while ((Line = AsciiStrStr (Line, Channel->Name)) != NULL) {
+    if (((Line == Response) || (Line[-1] == '\n') || (Line[-1] == '\r') ||
+         (Line[-1] == ' ')) &&
+        (Line[NameLength] == ' '))
+    {
+      break;
+    }
+
+    Line++;
+  }
+
+  if (Line == NULL) {
+    return FALSE;
+  }
+
+  Cursor = Line + NameLength;
+  while ((*Cursor != '\0') && (*Cursor != '\n') && (*Cursor != '(')) {
+    Cursor++;
+  }
+
+  if (*Cursor++ != '(') {
+    return FALSE;
+  }
+
+  ParsedId = 0;
+  HaveDigit = FALSE;
+  while ((*Cursor >= '0') && (*Cursor <= '9')) {
+    HaveDigit = TRUE;
+    ParsedId = (ParsedId * 10) + (*Cursor++ - '0');
+  }
+
+  if (!HaveDigit || (*Cursor++ != ')') || (ParsedId != Channel->Id)) {
+    return FALSE;
+  }
+
+  while ((*Cursor != '\0') && (*Cursor != '\n') && (*Cursor != '=')) {
+    Cursor++;
+  }
+
+  if (*Cursor++ != '=') {
+    return FALSE;
+  }
+
+  Integer = 0;
+  HaveDigit = FALSE;
+  while ((*Cursor >= '0') && (*Cursor <= '9')) {
+    HaveDigit = TRUE;
+    Integer = (Integer * 10) + (*Cursor++ - '0');
+  }
+
+  if (!HaveDigit) {
+    return FALSE;
+  }
+
+  Fraction = 0;
+  FractionDigits = 0;
+  RoundUp = FALSE;
+  if (*Cursor == '.') {
+    Cursor++;
+    while ((*Cursor >= '0') && (*Cursor <= '9')) {
+      if (FractionDigits < 6) {
+        Fraction = (Fraction * 10) + (*Cursor - '0');
+      } else if ((FractionDigits == 6) && (*Cursor >= '5')) {
+        RoundUp = TRUE;
+      }
+
+      FractionDigits++;
+      Cursor++;
+    }
+  }
+
+  while (FractionDigits < 6) {
+    Fraction *= 10;
+    FractionDigits++;
+  }
+
+  if (*Cursor != (Channel->IsVoltage ? 'V' : 'A')) {
+    return FALSE;
+  }
+
+  Result = (Integer * 1000000ULL) + Fraction + (RoundUp ? 1 : 0);
+  if (Result > MAX_UINT32) {
+    return FALSE;
+  }
+
+  *Value = (UINT32)Result;
+  return TRUE;
+}
+
+STATIC
+BOOLEAN
+GetFdtPowerProperty (
+  IN  CONST CHAR8  *PropertyName,
+  OUT UINT32       *Value
+  )
+{
+  CONST UINT32  *Property;
+  VOID          *Fdt;
+  INT32         Length;
+  INT32         Node;
+
+  Fdt = FdtPlatformGetBase ();
+  if (Fdt == NULL) {
+    return FALSE;
+  }
+
+  Node = FdtPathOffset (Fdt, "/chosen/power");
+  if (Node < 0) {
+    return FALSE;
+  }
+
+  Property = FdtGetProp (Fdt, Node, PropertyName, &Length);
+  if ((Property == NULL) || (Length < sizeof (*Property))) {
+    return FALSE;
+  }
+
+  *Value = Fdt32ToCpu (*Property);
+  return TRUE;
+}
+
+STATIC
+VOID
+DsdtFixupFirmwareTelemetry (
+  IN EFI_ACPI_SDT_PROTOCOL  *AcpiSdtProtocol,
+  IN EFI_ACPI_HANDLE        TableHandle
+  )
+{
+  CHAR8                           PmicResponse[PMIC_ADC_RESPONSE_SIZE];
+  BOOLEAN                         HasPowerPair;
+  EFI_PHYSICAL_ADDRESS            BufferAddress;
+  EFI_PHYSICAL_ADDRESS            MailboxAddress;
+  EFI_STATUS                      Status;
+  RASPBERRY_PI_FIRMWARE_PROTOCOL  *Firmware;
+  UINT32                          Id;
+  UINT32                          PmicCurrentMask;
+  UINT32                          PmicVoltageMask;
+  UINT32                          PowerReset;
+  UINT32                          PsuMaxCurrent;
+  UINT32                          PsuMaxPower;
+  UINT32                          RtcMask;
+  UINT32                          Temperature;
+  UINT32                          TemperatureMask;
+  UINT32                          UsbHighCurrent;
+  UINT32                          UsbOverCurrent;
+  UINT32                          Value;
+  UINT32                          VoltageMask;
+  UINTN                           BufferSize;
+  UINTN                           Index;
+  UINTN                           MailboxBusAddress;
+
+  Status = gBS->LocateProtocol (
+                  &gRaspberryPiFirmwareProtocolGuid,
+                  NULL,
+                  (VOID **)&Firmware
+                  );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "%a: Firmware protocol unavailable. Status=%r\n", __func__, Status));
+    return;
+  }
+
+  Status = Firmware->GetMailboxBuffer (
+                       &BufferAddress,
+                       &MailboxBusAddress,
+                       &BufferSize,
+                       &MailboxAddress
+                       );
+  if (EFI_ERROR (Status) ||
+      (BufferSize < EFI_PAGE_SIZE) ||
+      ((BufferAddress & (sizeof (UINT32) - 1)) != 0) ||
+      ((MailboxBusAddress & 0xF) != 0) ||
+      (MailboxBusAddress > MAX_UINT32))
+  {
+    DEBUG ((DEBUG_WARN, "%a: Firmware mailbox buffer is not ACPI-safe\n", __func__));
+    return;
+  }
+
+  // The public property interface defines exactly one temperature sensor,
+  // ID 0. Some firmware versions ignore the ID and echo a SoC reading for any
+  // value, so probing arbitrary IDs creates phantom sensors.
+  TemperatureMask = 0;
+  Status = Firmware->GetTemperature (TELEMETRY_TEMPERATURE_ID, &Temperature);
+  if (!EFI_ERROR (Status) && (Temperature >= 1000) &&
+      (Temperature <= 150000))
+  {
+    TemperatureMask = 1U << TELEMETRY_TEMPERATURE_ID;
+    DEBUG ((DEBUG_INFO, "%a: Firmware SoC temperature is %u mC\n", __func__, Temperature));
+  }
+
+  VoltageMask = 0;
+  for (Id = TELEMETRY_MIN_VOLTAGE_ID;
+       Id <= TELEMETRY_MAX_VOLTAGE_ID;
+       Id++)
+  {
+    Status = Firmware->GetVoltage (Id, &Value);
+    if (!EFI_ERROR (Status) && (Value >= TELEMETRY_MIN_VOLTAGE_UV) &&
+        (Value <= TELEMETRY_MAX_VOLTAGE_UV))
+    {
+      VoltageMask |= 1U << Id;
+      DEBUG ((DEBUG_INFO, "%a: Firmware voltage %u is %u uV\n", __func__, Id, Value));
+    }
+  }
+
+  RtcMask = 0;
+  for (Id = RpiRtcBatteryChargeVoltage;
+       Id <= RpiRtcBatteryVoltage;
+       Id++)
+  {
+    Status = Firmware->GetRtc ((RASPBERRY_PI_RTC_REGISTER)Id, &Value);
+    if (!EFI_ERROR (Status)) {
+      RtcMask |= 1U << Id;
+      DEBUG ((DEBUG_INFO, "%a: RTC telemetry register %u is %u\n", __func__, Id, Value));
+    }
+  }
+
+  PmicCurrentMask = 0;
+  PmicVoltageMask = 0;
+  ZeroMem (PmicResponse, sizeof (PmicResponse));
+  Status = Firmware->GetGencmd (
+                       "pmic_read_adc",
+                       PmicResponse,
+                       sizeof (PmicResponse)
+                       );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "%a: PMIC ADC telemetry unavailable. Status=%r\n", __func__, Status));
+  } else {
+    for (Index = 0; Index < ARRAY_SIZE (mPmicAdcChannels); Index++) {
+      if (!ParsePmicAdcValue (PmicResponse, &mPmicAdcChannels[Index], &Value)) {
+        continue;
+      }
+
+      if (mPmicAdcChannels[Index].IsVoltage) {
+        if (Value > PMIC_ADC_MAX_VOLTAGE_UV) {
+          continue;
+        }
+
+        PmicVoltageMask |= 1U << mPmicAdcChannels[Index].Id;
+      } else {
+        if (Value > PMIC_ADC_MAX_CURRENT_UA) {
+          continue;
+        }
+
+        PmicCurrentMask |= 1U << mPmicAdcChannels[Index].Id;
+      }
+
+      DEBUG ((
+        DEBUG_INFO,
+        "%a: PMIC %-12a ID %u is %u u%c\n",
+        __func__,
+        mPmicAdcChannels[Index].Name,
+        mPmicAdcChannels[Index].Id,
+        Value,
+        mPmicAdcChannels[Index].IsVoltage ? 'V' : 'A'
+        ));
+    }
+  }
+
+  HasPowerPair = FALSE;
+  for (Index = 0; Index < ARRAY_SIZE (mPmicAdcPowerPairs); Index++) {
+    if (((PmicCurrentMask & (1U << mPmicAdcPowerPairs[Index][0])) != 0) &&
+        ((PmicVoltageMask & (1U << mPmicAdcPowerPairs[Index][1])) != 0))
+    {
+      HasPowerPair = TRUE;
+      break;
+    }
+  }
+
+  PsuMaxCurrent = MAX_UINT32;
+  PsuMaxPower = MAX_UINT32;
+  if (GetFdtPowerProperty ("max_current", &Value) &&
+      (Value <= (MAX_UINT32 / 5)))
+  {
+    PsuMaxCurrent = Value;
+    // Raspberry Pi 5 consumes the fixed 5 V PDO; mA * 5 gives mW.
+    PsuMaxPower = Value * 5;
+  }
+
+  PowerReset = MAX_UINT32;
+  if (!GetFdtPowerProperty ("power_reset", &PowerReset)) {
+    GetFdtPowerProperty ("reset_event", &PowerReset);
+  }
+
+  UsbHighCurrent = MAX_UINT32;
+  GetFdtPowerProperty ("usb_max_current_enable", &UsbHighCurrent);
+  UsbOverCurrent = MAX_UINT32;
+  GetFdtPowerProperty ("usb_over_current_detected", &UsbOverCurrent);
+
+  if (EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.MBPA", MailboxAddress)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.MBCA", BufferAddress)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.MBBA", MailboxBusAddress)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.TMLO", TemperatureMask)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.VMLO", VoltageMask)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.RTCP", RtcMask)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.PVLO", PmicVoltageMask)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.PILO", PmicCurrentMask)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.PMEN", HasPowerPair ? 1 : 0)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.PSMW", PsuMaxPower)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.PSMC", PsuMaxCurrent)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.PSRR", PowerReset)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.PSUH", UsbHighCurrent)) ||
+      EFI_ERROR (PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.PSOC", UsbOverCurrent)))
+  {
+    return;
+  }
+
+  Status = PatchDsdtInteger (AcpiSdtProtocol, TableHandle, "\\_SB.MBEN", 1);
+  if (!EFI_ERROR (Status)) {
+    DEBUG ((
+      DEBUG_INFO,
+      "%a: Firmware telemetry exposed: temperature=0x%x voltage=0x%x rtc=0x%x pmic-v=0x%x pmic-a=0x%x\n",
+      __func__,
+      TemperatureMask,
+      VoltageMask,
+      RtcMask,
+      PmicVoltageMask,
+      PmicCurrentMask
+      ));
+    DEBUG ((
+      DEBUG_INFO,
+      "%a: Power source: max-current=%u mA max-power=%u mW reset=0x%x usb-high=%u usb-overcurrent=%u\n",
+      __func__,
+      PsuMaxCurrent,
+      PsuMaxPower,
+      PowerReset,
+      UsbHighCurrent,
+      UsbOverCurrent
+      ));
+  }
 }
 
 STATIC
@@ -973,6 +1500,7 @@ InstallAcpiTables (
   DsdtFixupStatus (mAcpiSdtProtocol, TableHandle);
   DsdtFixupSd (mAcpiSdtProtocol, TableHandle);
   DsdtFixupRp1 (mAcpiSdtProtocol, TableHandle);
+  DsdtFixupFirmwareTelemetry (mAcpiSdtProtocol, TableHandle);
   DsdtFixupPcie (mAcpiSdtProtocol, TableHandle);
 
   mAcpiSdtProtocol->Close (TableHandle);

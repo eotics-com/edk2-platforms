@@ -26,6 +26,19 @@ typedef enum {
 	RpiRtcBatteryVoltage,
 } RASPBERRY_PI_RTC_REGISTER;
 
+//
+// The firmware property mailbox DMA buffer is also used by the ACPI control
+// methods after ExitBootServices. Keep the command area and the two-party
+// Peterson lock on separate cache lines because the runtime mapping may become
+// cacheable while the AML SystemMemory mapping remains uncached.
+//
+#define RPI_FIRMWARE_MAILBOX_COMMAND_SIZE             0xF00
+#define RPI_FIRMWARE_MAILBOX_FW_ACTIVE_OFFSET          0xF00
+#define RPI_FIRMWARE_MAILBOX_ACPI_ACTIVE_OFFSET        0xF40
+#define RPI_FIRMWARE_MAILBOX_TURN_OFFSET               0xF80
+#define RPI_FIRMWARE_MAILBOX_OWNER_FIRMWARE            0
+#define RPI_FIRMWARE_MAILBOX_OWNER_ACPI                1
+
 typedef
 EFI_STATUS
 (EFIAPI *SET_POWER_STATE) (
@@ -197,6 +210,37 @@ EFI_STATUS
   IN   UINT32                     Value
   );
 
+typedef
+EFI_STATUS
+(EFIAPI *GET_TEMPERATURE) (
+  IN   UINT32  TemperatureId,
+  OUT  UINT32  *Temperature
+  );
+
+typedef
+EFI_STATUS
+(EFIAPI *GET_VOLTAGE) (
+  IN   UINT32  VoltageId,
+  OUT  UINT32  *Voltage
+  );
+
+typedef
+EFI_STATUS
+(EFIAPI *GET_GENCMD) (
+  IN  CONST CHAR8  *Command,
+  OUT CHAR8        *Response,
+  IN  UINTN        ResponseSize
+  );
+
+typedef
+EFI_STATUS
+(EFIAPI *GET_MAILBOX_BUFFER) (
+  OUT EFI_PHYSICAL_ADDRESS  *CpuAddress,
+  OUT UINTN                 *BusAddress,
+  OUT UINTN                 *BufferSize,
+  OUT EFI_PHYSICAL_ADDRESS  *MailboxAddress
+  );
+
 typedef struct {
   SET_POWER_STATE        SetPowerState;
   GET_MAC_ADDRESS        GetMacAddress;
@@ -225,6 +269,10 @@ typedef struct {
   GPIO_SET_CFG           SetGpioConfig;
   GET_RTC                GetRtc;
   SET_RTC                SetRtc;
+  GET_TEMPERATURE        GetTemperature;
+  GET_VOLTAGE            GetVoltage;
+  GET_GENCMD             GetGencmd;
+  GET_MAILBOX_BUFFER     GetMailboxBuffer;
 } RASPBERRY_PI_FIRMWARE_PROTOCOL;
 
 extern EFI_GUID gRaspberryPiFirmwareProtocolGuid;

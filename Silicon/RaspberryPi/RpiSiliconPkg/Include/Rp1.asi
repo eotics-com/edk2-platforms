@@ -83,6 +83,76 @@ Device (ETH0) {
 }
 
 //
+// RP1 internal temperature sensor (ADC channel 4). The platform driver owns
+// clock/block initialization and enables ASTA only after a successful sample.
+// The conversion below is the RP1 datasheet/Linux hwmon equation using the
+// board's fixed 3.3 V ADC reference; it is not a measurement of the 3.3 V rail.
+//
+Name (ASTA, 0xFE) // Patched to 0x0 or 0xF after ADC validation.
+
+OperationRegion (ADCR, SystemMemory, PBAR + RP1_ADC_BASE, 0x8)
+Field (ADCR, DWordAcc, NoLock, Preserve) {
+  ADCS, 32,
+  ADRS, 32
+}
+
+OperationRegion (ADST, SystemMemory, PBAR + RP1_ADC_BASE + 0x2000, 0x4)
+Field (ADST, DWordAcc, NoLock, Preserve) {
+  ASET, 32
+}
+
+OperationRegion (ADCL, SystemMemory, PBAR + RP1_ADC_BASE + 0x3000, 0x4)
+Field (ADCL, DWordAcc, NoLock, Preserve) {
+  ACLR, 32
+}
+
+Method (RTMP, 0, Serialized) {
+  Local7 = Ones
+  If (ASTA != 0xF) {
+    Return (Local7)
+  }
+
+  // Select channel 4, enable its temperature diode, and start one sample.
+  ACLR = 0x7000
+  ASET = 0x4006
+
+  Local0 = Zero
+  While (Local0 < 1000) {
+    Local1 = ADCS
+    If (Local1 & 0x100) {
+      Break
+    }
+
+    Stall (10)
+    Local0++
+  }
+
+  If ((Local0 >= 1000) || (Local1 & 0x200)) {
+    Return (Local7)
+  }
+
+  Local2 = ADRS & 0xFFF
+  Local3 = ((Local2 * 3300) + 2047) / 4095 // millivolts
+
+  // T = 27 - (ADC_voltage - 0.706) / 0.001721.
+  If (Local3 <= 706) {
+    Local4 = (((706 - Local3) * 10000) + 860) / 1721
+    Local7 = 2732 + 270 + Local4
+  } Else {
+    Local4 = (((Local3 - 706) * 10000) + 860) / 1721
+    If (Local4 <= 270) {
+      Local7 = 2732 + 270 - Local4
+    } ElseIf (Local4 <= 670) {
+      Local7 = 2732 - (Local4 - 270)
+    } Else {
+      Local7 = 2332 // Clamp an implausibly cold result to -40 C.
+    }
+  }
+
+  Return (Local7)
+}
+
+//
 // The Pi 5 fan is one physical four-speed fan. Windows only supports the
 // ACPI 1.0 D-state fan interface, so model each speed as a logical fan and
 // combine their shared power resources as described by the ACPI specification.

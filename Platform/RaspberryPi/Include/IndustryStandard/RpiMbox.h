@@ -93,6 +93,7 @@
 #define RPI_MBOX_GET_POE_HAT_VAL                              0x00030049
 #define RPI_MBOX_SET_POE_HAT_VAL                              0x00030050
 #define RPI_MBOX_NOTIFY_XHCI_RESET                            0x00030058
+#define RPI_MBOX_GET_GENCMD_RESULT                            0x00030080
 #define RPI_MBOX_GET_RTC_REG                                  0x00030087
 
 #define RPI_MBOX_SET_CLOCK_STATE                              0x00038001
