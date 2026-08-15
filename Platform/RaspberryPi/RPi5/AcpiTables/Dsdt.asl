@@ -438,8 +438,9 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
     }
 
     // Standard ACPI power meter for the sum of PMIC-managed output rails.
-    // It excludes direct 5 V loads and conversion losses, so _PMD deliberately
-    // does not claim that this is whole-system input power.
+    // It excludes direct 5 V loads and conversion losses. _PMD is deliberately
+    // omitted because the rail sum cannot be mapped accurately to complete
+    // ACPI device objects and therefore must not claim whole-system input power.
     Device (PMTR) {
       Name (_HID, "ACPI000D")
       Name (_UID, Zero)
@@ -1060,6 +1061,18 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
       Name (_UID, 0x0)
       Name (_STA, 0xF)
       Name (_PUR, Package () { 1, 0 })
+
+      // Retain the last OSPM response for platform diagnostics. Arg2 is the
+      // four-byte count of logical processors that OSPM actually idled.
+      Name (OSRC, Zero)
+      Name (OSTS, Zero)
+      Name (OSDT, Buffer (4) { 0, 0, 0, 0 })
+
+      Method (_OST, 3, Serialized) {
+        OSRC = Arg0
+        OSTS = Arg1
+        OSDT = Arg2
+      }
     }
 
     // BCM2712 AVS temperature sensor.
