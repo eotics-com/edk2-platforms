@@ -94,6 +94,10 @@
 #define BCM2712_DISP_INTR_BASE                            0x107c502000
 #define BCM2712_DISP_INTR_LENGTH                          0x30
 
+#define BCM2712_HDMI0_PHY_BASE                            0x107c701d00
+#define BCM2712_HDMI0_PHY_LENGTH                          0x300
+#define BCM2712_HDMI0_RM_BASE                             0x107c702000
+#define BCM2712_HDMI0_RM_LENGTH                           0x80
 #define BCM2712_HDMI0_DMA_CHANNEL                         6
 #define BCM2712_HDMI0_DMA_REQUEST_C1                      10
 #define BCM2712_HDMI0_DMA_REQUEST_D0                      12

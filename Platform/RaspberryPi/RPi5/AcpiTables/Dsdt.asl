@@ -1077,6 +1077,8 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
           QWORDMEMORY_BUF (02, ResourceConsumer)
           QWORDMEMORY_BUF (03, ResourceConsumer)
           QWORDMEMORY_BUF (04, ResourceConsumer)
+          QWORDMEMORY_BUF (05, ResourceConsumer)
+          QWORDMEMORY_BUF (06, ResourceConsumer)
           Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 118 }
           FixedDMA (BCM2712_HDMI0_DMA_REQUEST_C1, BCM2712_HDMI0_DMA_CHANNEL, Width32Bit, ADMA)
         })
@@ -1085,6 +1087,8 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
         QWORD_SET (02, 0x107C720000, 0x100, 0)
         QWORD_SET (03, 0x1000010600, 0x100, 0)
         QWORD_SET (04, 0x107C700000, 0x10, 0)
+        QWORD_SET (05, BCM2712_HDMI0_PHY_BASE, BCM2712_HDMI0_PHY_LENGTH, 0)
+        QWORD_SET (06, BCM2712_HDMI0_RM_BASE, BCM2712_HDMI0_RM_LENGTH, 0)
         CreateWordField (RBUF, ADMA._DMA, DRQL)
         If (((STPV >> 16) == BCM2712_SOC_STEPPING_ID) &&
             ((STPV & BCM2712_SOC_STEPPING_MASK) >= BCM2712_SOC_STEPPING_D0)) {
