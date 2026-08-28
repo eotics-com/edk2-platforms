@@ -1055,6 +1055,45 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
       }
     } // Device (GPU0)
 
+    // HDMI0 MAI audio engine and DMA40 channel 6.
+    Device (AUD0) {
+      Name (_HID, "RPI0006")
+      Name (_UID, 0x0)
+      Name (_CCA, 0x0)
+
+      OperationRegion (STPR, SystemMemory, BCM2712_SOC_STEPPING_BASE, 0x4)
+      Field (STPR, DWordAcc, NoLock, Preserve) {
+        STPV, 32
+      }
+
+      Method (_STA) {
+        Return (0xF)
+      }
+
+      Method (_CRS, 0x0, Serialized) {
+        Name (RBUF, ResourceTemplate () {
+          QWORDMEMORY_BUF (00, ResourceConsumer)
+          QWORDMEMORY_BUF (01, ResourceConsumer)
+          QWORDMEMORY_BUF (02, ResourceConsumer)
+          QWORDMEMORY_BUF (03, ResourceConsumer)
+          QWORDMEMORY_BUF (04, ResourceConsumer)
+          Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 118 }
+          FixedDMA (BCM2712_HDMI0_DMA_REQUEST_C1, BCM2712_HDMI0_DMA_CHANNEL, Width32Bit, ADMA)
+        })
+        QWORD_SET (00, 0x107C701400, 0x300, 0)
+        QWORD_SET (01, 0x107C703800, 0x200, 0)
+        QWORD_SET (02, 0x107C720000, 0x100, 0)
+        QWORD_SET (03, 0x1000010600, 0x100, 0)
+        QWORD_SET (04, 0x107C700000, 0x10, 0)
+        CreateWordField (RBUF, ADMA._DMA, DRQL)
+        If (((STPV >> 16) == BCM2712_SOC_STEPPING_ID) &&
+            ((STPV & BCM2712_SOC_STEPPING_MASK) >= BCM2712_SOC_STEPPING_D0)) {
+          DRQL = BCM2712_HDMI0_DMA_REQUEST_D0
+        }
+        Return (RBUF)
+      }
+    } // Device (AUD0)
+
     // Windows can use this device for passive logical-processor idling.
     Device (PAG0) {
       Name (_HID, "ACPI000C")

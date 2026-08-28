@@ -15,6 +15,11 @@
 #define BCM2712_LEGACY_BUS_BASE                           0x107c000000
 #define BCM2712_LEGACY_BUS_LENGTH                         0x4000000
 
+#define BCM2712_SOC_STEPPING_BASE                         0x1001504004
+#define BCM2712_SOC_STEPPING_ID                           0x2712
+#define BCM2712_SOC_STEPPING_MASK                         0xFF
+#define BCM2712_SOC_STEPPING_D0                           0x30
+
 #define BCM2712_PL011_UART0_BASE                          0x107d001000
 #define BCM2712_PL011_LENGTH                              0x200
 
@@ -88,5 +93,9 @@
 #define BCM2712_MOPLET_LENGTH                             0x20
 #define BCM2712_DISP_INTR_BASE                            0x107c502000
 #define BCM2712_DISP_INTR_LENGTH                          0x30
+
+#define BCM2712_HDMI0_DMA_CHANNEL                         6
+#define BCM2712_HDMI0_DMA_REQUEST_C1                      10
+#define BCM2712_HDMI0_DMA_REQUEST_D0                      12
 
 #endif // __BCM2712_H__
