@@ -346,7 +346,6 @@
   gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0xffffffff
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"EDK2-DEV"
-
 !if $(SECURE_BOOT_ENABLE) == TRUE
   # override the default values from SecurityPkg to ensure images from all sources are verified in secure boot
   gEfiSecurityPkgTokenSpaceGuid.PcdOptionRomImageVerificationPolicy|0x04
@@ -566,6 +565,7 @@
   MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
   MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
   Platform/RaspberryPi/Drivers/DisplayDxe/DisplayDxe.inf
+  Platform/RaspberryPi/RPi5/Drivers/Rp1DsiGopDxe/Rp1DsiGopDxe.inf
   EmbeddedPkg/Drivers/ConsolePrefDxe/ConsolePrefDxe.inf
 
   MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf

@@ -1,0 +1,48 @@
+## @file
+#  Raspberry Pi 5 RP1 DSI Graphics Output Protocol driver.
+#
+#  Copyright (c) 2026, Ahmed Ghanem. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001A
+  BASE_NAME                      = Rp1DsiGopDxe
+  FILE_GUID                      = ece21cd6-1248-4b3f-bf2c-9f4de282f92b
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = Rp1DsiGopDxeEntryPoint
+
+[Sources]
+  Rp1DsiGopDxe.h
+  Rp1DsiGopDxe.c
+  Rp1DsiHw.c
+  Ili9881Panel.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Platform/RaspberryPi/RPi5/RPi5.dec
+  Silicon/RaspberryPi/RpiSiliconPkg/RpiSiliconPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  IoLib
+  MemoryAllocationLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiCpuArchProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gEfiEdidActiveProtocolGuid
+  gEfiEdidDiscoveredProtocolGuid
+  gEfiGraphicsOutputProtocolGuid
+  gEfiPciIoProtocolGuid
+  gRp1BusProtocolGuid
+
+[Depex]
+  gEfiCpuArchProtocolGuid AND gRp1BusProtocolGuid
