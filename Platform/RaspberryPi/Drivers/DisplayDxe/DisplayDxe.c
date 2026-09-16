@@ -534,11 +534,11 @@ DriverStart (
     }
   }
 
-  if (PcdGet8 (PcdDisplayEnableScaledVModes) == JUST_NATIVE_ENABLED) {
+  if ((PcdGet8 (PcdDisplayEnableScaledVModes) & MODE_NATIVE_ENABLED) != 0) {
     /*
      * mBootWidth x mBootHeight may not be sensible,
-     * so clean it up, since we won't be adding
-     * any other extra vmodes.
+     * so clean it up before exposing the physical mode. This also applies
+     * when the physical mode is enabled alongside scaled modes.
      */
     if (mBootWidth < 640 || mBootHeight < 480) {
       mBootWidth = 640;
@@ -549,7 +549,7 @@ DriverStart (
     }
   }
 
-  if ((PcdGet8(PcdDisplayEnableScaledVModes) & MODE_NATIVE_ENABLED) != 0) {
+  if ((PcdGet8 (PcdDisplayEnableScaledVModes) & MODE_NATIVE_ENABLED) != 0) {
      /*
       * Adjust actual native res only if native res is enabled
       * (so last mode is native res).
@@ -591,7 +591,10 @@ DriverStart (
 
   // Both set the mode and initialize current mode information.
   gDisplayProto.Mode->MaxMode = mLastMode + 1;
-  DisplaySetMode (&gDisplayProto, 0);
+  Status = DisplaySetMode (&gDisplayProto, 0);
+  if (EFI_ERROR (Status)) {
+    goto Done;
+  }
 
   Status = gBS->InstallMultipleProtocolInterfaces (
     &Controller, &gEfiGraphicsOutputProtocolGuid,
