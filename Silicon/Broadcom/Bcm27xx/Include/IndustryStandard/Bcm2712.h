@@ -71,8 +71,8 @@
 #define BCM2712_V3D_CORE0_LENGTH                          0x6000
 #define BCM2712_V3D_SMS_BASE                              0x1002030800
 #define BCM2712_V3D_SMS_LENGTH                            0x700
-#define BCM2712_V3D_CORE_INTERRUPT                        282   // GIC_SPI 250 + 32
-#define BCM2712_V3D_HUB_INTERRUPT                         281   // GIC_SPI 249 + 32
+#define BCM2712_V3D_CORE_INTERRUPT                        281   // GIC_SPI 249 + 32
+#define BCM2712_V3D_HUB_INTERRUPT                         282   // GIC_SPI 250 + 32
 
 //
 // Display pipeline
