@@ -85,6 +85,7 @@ Wait4Chhltd (
   IN  EFI_EVENT       Timeout,
   IN  UINT32          Channel,
   IN  UINT32          *Sub,
+  OUT UINT32          *PacketsRemaining,
   IN  UINT32          *Toggle,
   IN  BOOLEAN         IgnoreAck,
   IN  SPLIT_CONTROL   *Split
@@ -92,7 +93,6 @@ Wait4Chhltd (
 {
   EFI_STATUS Status;
   UINT32  Hcint, Hctsiz;
-  UINT32  HcintCompHltAck = DWC2_HCINT_XFERCOMP;
 
   MicroSecondDelay (100);
   Status = Wait4Bit (Timeout, DwHc->DwUsbBase + HCINT (Channel),
@@ -107,10 +107,8 @@ Wait4Chhltd (
   ASSERT ((Hcint & DWC2_HCINT_CHHLTD) != 0);
   Hcint &= ~DWC2_HCINT_CHHLTD;
 
-  if (!IgnoreAck ||
-      (Split->Splitting && Split->SplitStart)) {
-    HcintCompHltAck |= DWC2_HCINT_ACK;
-  } else {
+  if (IgnoreAck &&
+      (!Split->Splitting || !Split->SplitStart)) {
     Hcint &= ~DWC2_HCINT_ACK;
   }
 
@@ -123,6 +121,16 @@ Wait4Chhltd (
   }
 
   if ((Hcint & DWC2_HCINT_NAK) != 0) {
+    Hctsiz = MmioRead32 (DwHc->DwUsbBase + HCTSIZ (Channel));
+    *Sub =
+      (Hctsiz & DWC2_HCTSIZ_XFERSIZE_MASK) >>
+      DWC2_HCTSIZ_XFERSIZE_OFFSET;
+    *PacketsRemaining =
+      (Hctsiz & DWC2_HCTSIZ_PKTCNT_MASK) >>
+      DWC2_HCTSIZ_PKTCNT_OFFSET;
+    *Toggle =
+      (Hctsiz & DWC2_HCTSIZ_PID_MASK) >>
+      DWC2_HCTSIZ_PID_OFFSET;
     return XFER_NAK;
   }
 
@@ -142,18 +150,20 @@ Wait4Chhltd (
     return XFER_CSPLIT;
   }
 
-  if (Hcint != HcintCompHltAck) {
-    DEBUG ((DEBUG_ERROR, "Wait4Chhltd: Channel %u HCINT 0x%x %a%a\n",
-      Channel, Hcint,
-      IgnoreAck ? "IgnoreAck " : "",
-      Split->SplitStart ? "split start" :
-      (Split->Splitting ? "split complete" : "")));
+  if ((Hcint & DWC2_HCINT_XFERCOMP) == 0) {
     return XFER_ERROR;
   }
 
   Hctsiz = MmioRead32 (DwHc->DwUsbBase + HCTSIZ (Channel));
-  *Sub = (Hctsiz & DWC2_HCTSIZ_XFERSIZE_MASK) >> DWC2_HCTSIZ_XFERSIZE_OFFSET;
-  *Toggle = (Hctsiz & DWC2_HCTSIZ_PID_MASK) >> DWC2_HCTSIZ_PID_OFFSET;
+  *Sub =
+    (Hctsiz & DWC2_HCTSIZ_XFERSIZE_MASK) >>
+    DWC2_HCTSIZ_XFERSIZE_OFFSET;
+  *PacketsRemaining =
+    (Hctsiz & DWC2_HCTSIZ_PKTCNT_MASK) >>
+    DWC2_HCTSIZ_PKTCNT_OFFSET;
+  *Toggle =
+    (Hctsiz & DWC2_HCTSIZ_PID_MASK) >>
+    DWC2_HCTSIZ_PID_OFFSET;
 
   return XFER_DONE;
 }
@@ -245,8 +255,11 @@ DwHcTransfer (
 {
   UINT32                          TxferLen;
   UINT32                          Done = 0;
+  UINT32                          Hctsiz;
   UINT32                          NumPackets;
+  UINT32                          PacketsRemaining;
   UINT32                          Sub;
+  UINT32                          TransferredPackets;
   UINT32                          Ret = 0;
   UINT32                          StopTransfer = 0;
   EFI_STATUS                      Status = EFI_SUCCESS;
@@ -313,7 +326,16 @@ DwHcTransfer (
         ((1 << DWC2_HCCHAR_MULTICNT_OFFSET) |
           DWC2_HCCHAR_CHEN));
 
-    Ret = Wait4Chhltd (DwHc, Timeout, Channel, &Sub, Pid, IgnoreAck, &Split);
+    Ret = Wait4Chhltd (
+            DwHc,
+            Timeout,
+            Channel,
+            &Sub,
+            &PacketsRemaining,
+            Pid,
+            IgnoreAck,
+            &Split
+            );
 
     if (Ret == XFER_NOT_HALTED) {
       *TransferResult = EFI_USB_ERR_TIMEOUT;
@@ -327,6 +349,24 @@ DwHcTransfer (
       Status = Wait4Bit (Timeout, DwHc->DwUsbBase + HCINT (Channel),
                          DWC2_HCINT_CHHLTD, 1);
       if (Status == EFI_SUCCESS) {
+        Hctsiz = MmioRead32 (DwHc->DwUsbBase + HCTSIZ (Channel));
+        PacketsRemaining =
+          (Hctsiz & DWC2_HCTSIZ_PKTCNT_MASK) >> DWC2_HCTSIZ_PKTCNT_OFFSET;
+        *Pid = (Hctsiz & DWC2_HCTSIZ_PID_MASK) >> DWC2_HCTSIZ_PID_OFFSET;
+        if (TransferDirection &&
+            (EpType == DWC2_HCCHAR_EPTYPE_BULK) &&
+            (PacketsRemaining <= NumPackets)) {
+          TransferredPackets = NumPackets - PacketsRemaining;
+          TxferLen = TransferredPackets * MaximumPacketLength;
+          if (TxferLen > *DataLength - Done) {
+            TxferLen = *DataLength - Done;
+          }
+          if (TxferLen != 0) {
+            ArmDataSynchronizationBarrier ();
+            CopyMem (Data + Done, DwHc->AlignedBuffer, TxferLen);
+            Done += TxferLen;
+          }
+        }
         Status = EFI_TIMEOUT;
       } else {
         DEBUG ((DEBUG_ERROR, "Channel %u did not halt\n", Channel));
@@ -358,6 +398,39 @@ DwHcTransfer (
     } else if (Ret == XFER_NAK) {
       if (Split.Splitting &&
           (EpType == DWC2_HCCHAR_EPTYPE_CONTROL)) {
+        goto RestartXfer;
+      }
+
+      if (TransferDirection &&
+          (EpType == DWC2_HCCHAR_EPTYPE_BULK) &&
+          ((PacketsRemaining < NumPackets) || (Done != 0))) {
+        if (PacketsRemaining > NumPackets) {
+          *TransferResult = EFI_USB_ERR_SYSTEM;
+          Status = EFI_DEVICE_ERROR;
+          break;
+        }
+
+        TransferredPackets = NumPackets - PacketsRemaining;
+        if (TransferredPackets != 0) {
+          TxferLen = TransferredPackets * MaximumPacketLength;
+          if (TxferLen > *DataLength - Done) {
+            TxferLen = *DataLength - Done;
+          }
+          ArmDataSynchronizationBarrier ();
+          CopyMem (Data + Done, DwHc->AlignedBuffer, TxferLen);
+          Done += TxferLen;
+          if (Done == *DataLength) {
+            Status = EFI_SUCCESS;
+            break;
+          }
+        }
+
+        if (!EFI_ERROR (gBS->CheckEvent (Timeout))) {
+          *TransferResult = EFI_USB_ERR_TIMEOUT;
+          Status = EFI_TIMEOUT;
+          break;
+        }
+
         goto RestartXfer;
       }
 
