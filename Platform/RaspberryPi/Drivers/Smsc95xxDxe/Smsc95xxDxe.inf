@@ -1,0 +1,39 @@
+## @file
+# UEFI Simple Network driver for the SMSC/Microchip LAN95xx USB Ethernet family.
+#
+# Copyright (c) 2026 Ahmed ARIF <arif.ing@outlook.com>
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010018
+  BASE_NAME                      = Smsc95xxDxe
+  FILE_GUID                      = 5D3A759A-9F5E-4CF6-9F4B-2C45D04BEB32
+  MODULE_TYPE                    = UEFI_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = Smsc95xxEntryPoint
+
+[Sources]
+  Smsc95xxDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  NetworkPkg/NetworkPkg.dec
+  Platform/RaspberryPi/RaspberryPi.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DevicePathLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiDevicePathProtocolGuid             ## CONSUMES
+  gEfiSimpleNetworkProtocolGuid          ## PRODUCES
+  gEfiUsbIoProtocolGuid                  ## TO_START
+  gRaspberryPiFirmwareProtocolGuid       ## CONSUMES

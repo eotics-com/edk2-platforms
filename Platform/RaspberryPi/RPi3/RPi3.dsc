@@ -706,6 +706,7 @@
   MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
   MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
   Drivers/ASIX/Bus/Usb/UsbNetworking/Ax88772c/Ax88772c.inf
+  Platform/RaspberryPi/Drivers/Smsc95xxDxe/Smsc95xxDxe.inf
 
   #
   # SD/MMC support

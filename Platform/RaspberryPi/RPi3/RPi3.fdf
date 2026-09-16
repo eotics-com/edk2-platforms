@@ -296,6 +296,7 @@ READ_LOCK_STATUS   = TRUE
   INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
   INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
   INF Drivers/ASIX/Bus/Usb/UsbNetworking/Ax88772c/Ax88772c.inf
+  INF Platform/RaspberryPi/Drivers/Smsc95xxDxe/Smsc95xxDxe.inf
 
   #
   # SD/MMC support
