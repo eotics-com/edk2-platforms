@@ -23,10 +23,12 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Protocol/AcpiSystemDescriptionTable.h>
+#include <Protocol/EdidActive.h>
 #include <Protocol/PciIo.h>
 #include <Protocol/Rp1Bus.h>
 #include <Protocol/RpiFirmware.h>
 #include <Rp1.h>
+#include <Rp1DsiPanel.h>
 #include <RpiPlatformVarStoreData.h>
 #include <Rpi5McfgTable.h>
 #include <ConfigVars.h>
@@ -54,6 +56,10 @@ STATIC EFI_ACPI_DESCRIPTION_HEADER  *mDsdtTable;
 
 STATIC UINT64  mAcpiPciMem32Base;
 STATIC UINT64  mAcpiPciMem32Size;
+
+STATIC CONST UINT8  mRp1DsiPanelEdid[RP1_DSI_PANEL_EDID_SIZE] = {
+  RP1_DSI_PANEL_EDID_BYTES
+};
 
 STATIC EFI_EXIT_BOOT_SERVICES  mOriginalExitBootServices;
 
@@ -262,6 +268,80 @@ DsdtFixupStatus (
                 __func__, DevStatus[Index].ObjectPath, Status));
       }
     }
+  }
+}
+
+STATIC
+BOOLEAN
+IsRp1DsiPanelPresent (
+  VOID
+  )
+{
+  EFI_EDID_ACTIVE_PROTOCOL  *EdidActive;
+  EFI_HANDLE                *Handles;
+  EFI_STATUS                Status;
+  UINTN                     HandleCount;
+  UINTN                     Index;
+  BOOLEAN                   Present;
+
+  Handles     = NULL;
+  HandleCount = 0;
+  Present     = FALSE;
+  Status = gBS->LocateHandleBuffer (
+                  ByProtocol,
+                  &gEfiEdidActiveProtocolGuid,
+                  NULL,
+                  &HandleCount,
+                  &Handles
+                  );
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  for (Index = 0; Index < HandleCount; Index++) {
+    Status = gBS->HandleProtocol (
+                    Handles[Index],
+                    &gEfiEdidActiveProtocolGuid,
+                    (VOID **)&EdidActive
+                    );
+    if (!EFI_ERROR (Status) &&
+        (EdidActive->Edid != NULL) &&
+        (EdidActive->SizeOfEdid >= sizeof (mRp1DsiPanelEdid)) &&
+        (CompareMem (
+           EdidActive->Edid,
+           mRp1DsiPanelEdid,
+           sizeof (mRp1DsiPanelEdid)
+           ) == 0))
+    {
+      Present = TRUE;
+      break;
+    }
+  }
+
+  FreePool (Handles);
+  return Present;
+}
+
+STATIC
+VOID
+EFIAPI
+DsdtFixupDisplay (
+  IN EFI_ACPI_SDT_PROTOCOL  *AcpiSdtProtocol,
+  IN EFI_ACPI_HANDLE        TableHandle
+  )
+{
+  BOOLEAN     DsiPresent;
+  EFI_STATUS  Status;
+
+  DsiPresent = IsRp1DsiPanelPresent ();
+  Status = AcpiAmlObjectUpdateInteger (
+             AcpiSdtProtocol,
+             TableHandle,
+             "\\_SB.GPU0.DSTA",
+             DsiPresent ? 0xF : 0x0
+             );
+  if (EFI_ERROR (Status)) {
+    return;
   }
 }
 
@@ -1498,6 +1578,7 @@ InstallAcpiTables (
   }
 
   DsdtFixupStatus (mAcpiSdtProtocol, TableHandle);
+  DsdtFixupDisplay (mAcpiSdtProtocol, TableHandle);
   DsdtFixupSd (mAcpiSdtProtocol, TableHandle);
   DsdtFixupRp1 (mAcpiSdtProtocol, TableHandle);
   DsdtFixupFirmwareTelemetry (mAcpiSdtProtocol, TableHandle);

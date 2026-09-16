@@ -58,6 +58,7 @@
 
 [Protocols]
   gEfiAcpiSdtProtocolGuid                     ## CONSUMES
+  gEfiEdidActiveProtocolGuid                  ## CONSUMES
   gBrcmStbSdhciDeviceProtocolGuid             ## PRODUCES
   gRp1BusProtocolGuid                         ## CONSUMES
   gRaspberryPiFirmwareProtocolGuid            ## CONSUMES

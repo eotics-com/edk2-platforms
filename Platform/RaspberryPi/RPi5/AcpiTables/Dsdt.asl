@@ -989,6 +989,51 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
       Name (_UID, 0x0)
       Name (_CCA, 0x0)
 
+      // Patched after the DSI GOP has probed Touch Display 2.
+      Name (DSTA, ACPI_PATCH_BYTE_VALUE)
+
+      Method (_DOD, 0, NotSerialized) {
+        If (DSTA == 0xF) {
+          // Standard device-ID scheme, internal digital flat panel 0.
+          Return (Package () { 0x80000400 })
+        }
+
+        Return (Package () {})
+      }
+
+      Device (DSI0) {
+        Name (_ADR, 0x80000400)
+
+        Method (_STA, 0, NotSerialized) {
+          Return (DSTA)
+        }
+
+        Method (_DDC, 1, NotSerialized) {
+          If (Arg0 == One) {
+            Return (Buffer () { RP1_DSI_PANEL_EDID_BYTES })
+          }
+
+          Return (Zero)
+        }
+
+        Method (_DCS, 0, NotSerialized) {
+          If (DSTA == 0xF) {
+            // Present, active, switchable, functional, and attached.
+            Return (0x1F)
+          }
+
+          Return (Zero)
+        }
+
+        Method (_DGS, 0, NotSerialized) {
+          Return (DSTA == 0xF)
+        }
+
+        Method (_DSS, 1, NotSerialized) {
+          // Scanout is firmware-owned and fixed while this ACPI device lives.
+        }
+      }
+
       Method (_STA) {
         Return (0xF)
       }

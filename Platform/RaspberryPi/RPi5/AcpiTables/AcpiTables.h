@@ -12,6 +12,7 @@
 #include <IndustryStandard/Acpi.h>
 #include <IndustryStandard/Bcm2712.h>
 #include <Library/PcdLib.h>
+#include <Rp1DsiPanel.h>
 
 #define EFI_ACPI_OEM_ID                       {'R','P','I','F','D','N'}
 #define EFI_ACPI_OEM_TABLE_ID                 SIGNATURE_64 ('R','P','I','5',' ',' ',' ',' ')
