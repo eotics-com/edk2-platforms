@@ -707,7 +707,11 @@ DwHcSetRootHubPortFeature (
         DWC2_HPRT0_PRTENCHNG | DWC2_HPRT0_PRTOVRCURRCHNG),
       DWC2_HPRT0_PRTRST);
     MicroSecondDelay (50000);
-    MmioAnd32 (DwHc->DwUsbBase + HPRT0, ~DWC2_HPRT0_PRTRST);
+    // PRTENA is write-one-to-disable and the change bits are W1C. Do not
+    // replay either when releasing reset.
+    MmioAnd32 (DwHc->DwUsbBase + HPRT0,
+      ~(DWC2_HPRT0_PRTENA | DWC2_HPRT0_PRTCONNDET |
+        DWC2_HPRT0_PRTENCHNG | DWC2_HPRT0_PRTOVRCURRCHNG | DWC2_HPRT0_PRTRST));
     break;
   case EfiUsbPortPower:
     Hprt0 = MmioRead32 (DwHc->DwUsbBase + HPRT0);
@@ -755,12 +759,9 @@ DwHcClearRootHubPortFeature (
     MmioWrite32 (DwHc->DwUsbBase + HPRT0, Hprt0);
     break;
   case EfiUsbPortReset:
-    MmioAndThenOr32 (DwHc->DwUsbBase + HPRT0,
+    MmioAnd32 (DwHc->DwUsbBase + HPRT0,
       ~(DWC2_HPRT0_PRTENA | DWC2_HPRT0_PRTCONNDET |
-        DWC2_HPRT0_PRTENCHNG | DWC2_HPRT0_PRTOVRCURRCHNG),
-      DWC2_HPRT0_PRTRST);
-    MicroSecondDelay (50000);
-    MmioAnd32 (DwHc->DwUsbBase + HPRT0, ~DWC2_HPRT0_PRTRST);
+        DWC2_HPRT0_PRTENCHNG | DWC2_HPRT0_PRTOVRCURRCHNG | DWC2_HPRT0_PRTRST));
     break;
   case EfiUsbPortSuspend:
     MmioWrite32 (DwHc->DwUsbBase + PCGCCTL, 0);
@@ -786,21 +787,30 @@ DwHcClearRootHubPortFeature (
     break;
   case EfiUsbPortConnectChange:
     Hprt0 = MmioRead32 (DwHc->DwUsbBase + HPRT0);
-    Hprt0 &= ~DWC2_HPRT0_PRTCONNDET;
+    // Acknowledge only this W1C event, preserving port enable.
+    Hprt0 &= ~(DWC2_HPRT0_PRTENA | DWC2_HPRT0_PRTCONNDET |
+        DWC2_HPRT0_PRTENCHNG | DWC2_HPRT0_PRTOVRCURRCHNG);
+    Hprt0 |= DWC2_HPRT0_PRTCONNDET;
     MmioWrite32 (DwHc->DwUsbBase + HPRT0, Hprt0);
     break;
   case EfiUsbPortResetChange:
     break;
   case EfiUsbPortEnableChange:
     Hprt0 = MmioRead32 (DwHc->DwUsbBase + HPRT0);
-    Hprt0 &= ~DWC2_HPRT0_PRTENCHNG;
+    // Acknowledge only this W1C event, preserving port enable.
+    Hprt0 &= ~(DWC2_HPRT0_PRTENA | DWC2_HPRT0_PRTCONNDET |
+        DWC2_HPRT0_PRTENCHNG | DWC2_HPRT0_PRTOVRCURRCHNG);
+    Hprt0 |= DWC2_HPRT0_PRTENCHNG;
     MmioWrite32 (DwHc->DwUsbBase + HPRT0, Hprt0);
     break;
   case EfiUsbPortSuspendChange:
     break;
   case EfiUsbPortOverCurrentChange:
     Hprt0 = MmioRead32 (DwHc->DwUsbBase + HPRT0);
-    Hprt0 &= ~DWC2_HPRT0_PRTOVRCURRCHNG;
+    // Acknowledge only this W1C event, preserving port enable.
+    Hprt0 &= ~(DWC2_HPRT0_PRTENA | DWC2_HPRT0_PRTCONNDET |
+        DWC2_HPRT0_PRTENCHNG | DWC2_HPRT0_PRTOVRCURRCHNG);
+    Hprt0 |= DWC2_HPRT0_PRTOVRCURRCHNG;
     MmioWrite32 (DwHc->DwUsbBase + HPRT0, Hprt0);
     break;
   default:
