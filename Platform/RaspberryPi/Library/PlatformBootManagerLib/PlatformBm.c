@@ -12,6 +12,7 @@
  *
  **/
 
+#include <IndustryStandard/Usb.h>
 #include <Library/BootLogoLib.h>
 #include <Library/CapsuleLib.h>
 #include <Library/DevicePathLib.h>
@@ -27,6 +28,7 @@
 #include <Protocol/GraphicsOutput.h>
 #include <Protocol/LoadedImage.h>
 #include <Protocol/PlatformSpecificResetHandler.h>
+#include <Protocol/Usb2HostController.h>
 #include <Guid/BootDiscoveryPolicy.h>
 #include <Guid/EventGroup.h>
 #include <Guid/TtyTerm.h>
@@ -783,6 +785,154 @@ BootDiscoveryPolicyHandler (
 }
 
 /**
+  Check whether any Simple File System instance is present yet.
+**/
+STATIC
+BOOLEAN
+BootFileSystemPresent (
+  VOID
+  )
+{
+  EFI_HANDLE  *Handles;
+  EFI_STATUS  Status;
+  UINTN       HandleCount;
+
+  HandleCount = 0;
+  Handles     = NULL;
+  Status      = gBS->LocateHandleBuffer (
+                       ByProtocol,
+                       &gEfiSimpleFileSystemProtocolGuid,
+                       NULL,
+                       &HandleCount,
+                       &Handles
+                       );
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  gBS->FreePool (Handles);
+  return HandleCount > 0;
+}
+
+/**
+  Recover a connected DWC2 controller whose initial root-port reset failed.
+
+  The failed reset consumes the connect-change event. Calling ConnectAll again
+  leaves UsbBusDxe attached and does not restart enumeration, so reconnect only
+  a disabled DWC2 root controller. Never disturb an enabled USB bus or an
+  unrelated xHCI controller.
+**/
+STATIC
+VOID
+RecoverDisabledDwUsbController (
+  VOID
+  )
+{
+  STATIC CONST EFI_GUID  DwUsbControllerGuid = {
+    0x4bf1704c, 0x03f4, 0x46d5,
+    { 0xbc, 0xa6, 0x82, 0xfa, 0x58, 0x0b, 0xad, 0xfd }
+  };
+  EFI_DEVICE_PATH_PROTOCOL  *Path;
+  EFI_HANDLE                *Handles;
+  EFI_STATUS                Status;
+  EFI_USB2_HC_PROTOCOL      *Usb;
+  EFI_USB_PORT_STATUS       Port;
+  UINTN                     Count;
+  UINTN                     Index;
+
+  Handles = NULL;
+  Count   = 0;
+  Status  = gBS->LocateHandleBuffer (
+                   ByProtocol,
+                   &gEfiUsb2HcProtocolGuid,
+                   NULL,
+                   &Count,
+                   &Handles
+                   );
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  for (Index = 0; Index < Count; ++Index) {
+    Path = DevicePathFromHandle (Handles[Index]);
+    if ((Path == NULL) ||
+        (DevicePathType (Path) != HARDWARE_DEVICE_PATH) ||
+        (DevicePathSubType (Path) != HW_VENDOR_DP) ||
+        (DevicePathNodeLength (Path) < sizeof (VENDOR_DEVICE_PATH)) ||
+        !CompareGuid (
+           &((VENDOR_DEVICE_PATH *)Path)->Guid,
+           &DwUsbControllerGuid
+           ))
+    {
+      continue;
+    }
+
+    Status = gBS->HandleProtocol (
+                    Handles[Index],
+                    &gEfiUsb2HcProtocolGuid,
+                    (VOID **)&Usb
+                    );
+    if (EFI_ERROR (Status)) {
+      continue;
+    }
+
+    ZeroMem (&Port, sizeof (Port));
+    Status = Usb->GetRootHubPortStatus (Usb, 0, &Port);
+    if (EFI_ERROR (Status) ||
+        !(Port.PortStatus & USB_PORT_STAT_CONNECTION) ||
+        (Port.PortStatus & USB_PORT_STAT_ENABLE))
+    {
+      continue;
+    }
+
+    Status = gBS->DisconnectController (Handles[Index], NULL, NULL);
+    if (!EFI_ERROR (Status)) {
+      (VOID)gBS->ConnectController (Handles[Index], NULL, NULL, TRUE);
+    }
+  }
+
+  FreePool (Handles);
+}
+
+/**
+  Wait for boot media to produce a file system.
+
+  USB mass storage sits behind the timer-polled USB bus (and on Pi 3 always
+  behind the onboard hub on a polled DWC2 host), so on a USB-only boot the
+  stick's file system materializes seconds after the host controller is
+  connected.  Boot options collected before that miss the boot medium
+  entirely.  Reconnect and wait, bounded; a boot from SD/eMMC exits on the
+  first pass, so this adds no delay to the common case.
+**/
+STATIC
+VOID
+WaitForBootFileSystem (
+  VOID
+  )
+{
+  UINTN Retry;
+
+  for (Retry = 0; Retry < 10; Retry++) {
+    EfiBootManagerConnectAll ();
+    if (BootFileSystemPresent ()) {
+      break;
+    }
+
+    if (Retry == 4) {
+      RecoverDisabledDwUsbController ();
+    }
+
+    gBS->Stall (500 * 1000);
+  }
+
+  //
+  // Regenerate the boot options that were built from the incomplete
+  // device tree.
+  //
+  EfiBootManagerRefreshAllBootOption ();
+}
+
+/**
   Do the platform specific action after the console is ready
   Possible things that can be done in PlatformBootManagerAfterConsole:
   > Console post action:
@@ -809,6 +959,15 @@ PlatformBootManagerAfterConsole (
   }
 
   //
+  // RP1 and USB-backed GOP devices can appear only while the late boot-media
+  // discovery below connects the PCI tree.  Add those GOP paths after that
+  // discovery and connect ConOut again before choosing the logo console.
+  //
+  WaitForBootFileSystem ();
+  FilterAndProcess (&gEfiGraphicsOutputProtocolGuid, NULL, AddOutput);
+  (VOID)EfiBootManagerConnectConsoleVariable (ConOut);
+
+  //
   // Show the splash screen.
   //
   Status = BootLogoEnableLogo ();
@@ -816,11 +975,6 @@ PlatformBootManagerAfterConsole (
     SerialConPrint (BOOT_PROMPT);
   } else {
     Print (BOOT_PROMPT);
-  }
-
-  Status = BootDiscoveryPolicyHandler ();
-  if (EFI_ERROR(Status)) {
-    DEBUG ((DEBUG_INFO, "Error applying Boot Discovery Policy:%r\n", Status));
   }
 
   Status = BootDiscoveryPolicyHandler ();
