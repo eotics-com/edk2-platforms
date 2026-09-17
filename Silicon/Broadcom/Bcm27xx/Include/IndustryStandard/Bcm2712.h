@@ -33,6 +33,12 @@
 #define BCM2712_PINCTRL_AON_BASE                          0x107d510700
 #define BCM2712_PINCTRL_AON_LENGTH                        0x1C
 
+#define BCM2712_AON_L2_INTERRUPT_BASE                     0x107d510600
+#define BCM2712_AON_L2_INTERRUPT_LENGTH                   0x30
+#define BCM2712_AON_L2_PARENT_INTERRUPT                   271   // GIC_SPI 239 + 32
+#define BCM2712_AON_L2_HDMI0_HPD_CONNECTED                7
+#define BCM2712_AON_L2_HDMI0_HPD_REMOVED                  8
+
 #define BCM2712_AVS_MONITOR_BASE                          0x107d542000
 #define BCM2712_AVS_MONITOR_LENGTH                        0xF00
 #define BCM2712_AVS_MONITOR_TEMP_STATUS_OFFSET            0x200

@@ -1100,11 +1100,29 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
       }
     } // Device (GPU0)
 
+    // Always-on edge-latched interrupt controller used by HDMI and CEC.
+    Device (AONI) {
+      Name (_HID, "BRCM0A01")
+      Name (_UID, 0x0)
+      Name (_CCA, 0x0)
+      Name (_STA, 0xF)
+
+      Method (_CRS, 0x0, Serialized) {
+        Name (RBUF, ResourceTemplate () {
+          QWORDMEMORY_BUF (00, ResourceConsumer)
+          Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { BCM2712_AON_L2_PARENT_INTERRUPT }
+        })
+        QWORD_SET (00, BCM2712_AON_L2_INTERRUPT_BASE, BCM2712_AON_L2_INTERRUPT_LENGTH, 0)
+        Return (RBUF)
+      }
+    } // Device (AONI)
+
     // HDMI0 MAI audio engine and DMA40 channel 6.
     Device (AUD0) {
       Name (_HID, "RPI0006")
       Name (_UID, 0x0)
       Name (_CCA, 0x0)
+      Name (_DEP, Package () { \_SB.AONI })
 
       OperationRegion (STPR, SystemMemory, BCM2712_SOC_STEPPING_BASE, 0x4)
       Field (STPR, DWordAcc, NoLock, Preserve) {
@@ -1125,6 +1143,8 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "RPIFDN", "RPI5    ", 2)
           QWORDMEMORY_BUF (05, ResourceConsumer)
           QWORDMEMORY_BUF (06, ResourceConsumer)
           Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 118 }
+          GpioInt (Edge, ActiveHigh, Exclusive, PullDefault, 0, "\\_SB.AONI",) { BCM2712_AON_L2_HDMI0_HPD_CONNECTED }
+          GpioInt (Edge, ActiveHigh, Exclusive, PullDefault, 0, "\\_SB.AONI",) { BCM2712_AON_L2_HDMI0_HPD_REMOVED }
           FixedDMA (BCM2712_HDMI0_DMA_REQUEST_C1, BCM2712_HDMI0_DMA_CHANNEL, Width32Bit, ADMA)
         })
         QWORD_SET (00, 0x107C701400, 0x300, 0)
